@@ -313,19 +313,48 @@ res <- tryCatch(
 # ---- 4. 自检产出 -------------------------------------------------------------
 hr()
 say("找产出物……")
-found <- list.files(file.path(OUT, "exe_out"), pattern = "\\.exe$",
+
+# ⚠️⚠️ 后缀**按平台分**：win 是 .exe，mac 是 .dmg。2026-10-07 之前这里写死
+#      `\\.exe$` —— 后果是 mac 那条路**即使打成功了**也会在最后一步报
+#      "没找到 .exe" 然后 quit(status = 1)，整条 CI 变成红的，而产物其实在
+#      磁盘上躺着。这是同一个"只想着 win"的毛病第三次现形（前两次是
+#      export() 的 platform/arch 和 preflight 的宿主机判断）。
+#
+#      另外 `.app` 是个**目录**：list.files() 本身不会返回它，但递归会把
+#      bundle 里面几百个文件全捞出来 —— 所以下面把 `.app/` 里面的路径滤掉，
+#      单独用 list.dirs() 找 bundle。
+PAT <- if (PLAT == "mac") "\\.(dmg|zip)$" else "\\.(exe|zip)$"
+found <- list.files(file.path(OUT, "exe_out"), pattern = PAT,
                     recursive = TRUE, full.names = TRUE)
-if (!length(found)) {
-  say("没找到 .exe。看看上面的输出里 electron-builder 报了什么。")
+found <- found[!grepl("\\.app/", found, fixed = TRUE)]
+apps <- if (PLAT == "mac") {
+  d <- list.dirs(file.path(OUT, "exe_out"), recursive = TRUE)
+  d[grepl("\\.app$", d)]
+} else character(0)
+
+if (!length(found) && !length(apps)) {
+  say("没找到 %s 产物。看看上面的输出里 electron-builder 报了什么。",
+      if (PLAT == "mac") ".dmg / .app" else ".exe")
   quit(status = 1)
 }
-for (f in found) {
-  say("  %s  %.1f MB", f, file.info(f)$size / 1024^2)
-}
+for (f in found) say("  %s  %.1f MB", f, file.info(f)$size / 1024^2)
+for (a in apps)  say("  %s/  （.app 包，未压缩）", a)
+
 say("")
-say("⚠️ 打出来了不等于能用。发出去之前请在真 Windows 上过一遍")
-say("   desktop/README.md 末尾那张验收清单 —— 尤其是这四条：")
-say("     · 双击能起来（不是一闪而过）")
-say("     · 注册一个账号，关掉重开，账号还在（数据目录定位对了）")
-say("     · 跑一个 R 任务，能出结果（自带运行时接上了）")
-say("     · 杀毒软件不拦（没有代码签名时这条最容易出问题）")
+if (PLAT == "mac") {
+  say("⚠️ 打出来了不等于能用。发出去之前请在真 Mac 上过一遍")
+  say("   desktop/README.md 末尾那张验收清单 —— 尤其是这几条：")
+  say("     · 双击能起来（不是一闪而过）")
+  say("     · 注册一个账号，关掉重开，账号还在（数据目录定位对了）")
+  say("     · 跑一个 R 任务，能出结果（自带运行时接上了）")
+  say("     · 首次打开的 Gatekeeper 拦截（没有 Developer ID 时必然发生，")
+  say("       右键→打开 能绕过；但用户得知道这件事）")
+  say("     · ⚠️ 芯片要对：arm64 包在 Intel 机器上跑不了，反之亦然")
+} else {
+  say("⚠️ 打出来了不等于能用。发出去之前请在真 Windows 上过一遍")
+  say("   desktop/README.md 末尾那张验收清单 —— 尤其是这四条：")
+  say("     · 双击能起来（不是一闪而过）")
+  say("     · 注册一个账号，关掉重开，账号还在（数据目录定位对了）")
+  say("     · 跑一个 R 任务，能出结果（自带运行时接上了）")
+  say("     · 杀毒软件不拦（没有代码签名时这条最容易出问题）")
+}
