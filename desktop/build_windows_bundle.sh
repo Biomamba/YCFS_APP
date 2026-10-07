@@ -150,7 +150,10 @@ Rscript --no-environ "$REPO/desktop/fetch_win_pkgs.R" \
 say "复制应用文件"
 # ⚠️ R.version$minor 是 **"4.3"** 这种带补丁号的（R 4.4.3 -> minor="4.3"），
 #    直接 paste 出来是 "4.4.3"；要的是 major.minor，所以先把 minor 的补丁位砍掉。
-BUILD_RVER="$(Rscript --no-environ -e 'cat(paste0(R.version$major, ".", sub("\\..*$", "", R.version$minor)))')"
+# ⚠️ 正则写成 `[.]` 而不是 `\\.` —— 这份脚本这条路（ubuntu）上两种写法都能跑，
+#    但 mac 那份同一个写法当场炸（详见 build_macos_bundle.sh 里那段注释）。
+#    两份保持一致，免得下次改的时候又分叉。
+BUILD_RVER="$(Rscript --no-environ -e 'cat(paste0(R.version$major, ".", sub("[.].*$", "", R.version$minor)))')"
 # ⚠️ 比到 **minor**，不比 patch —— 和 desktop/bytecode_app.R 里那道闸门同一个
 #    判据（那里有实测：4.4.2 打的字节码在 4.4.3 里跑，无警告、仍是 BCODESXP、
 #    结果一样）。卡到 patch 的话，打包机是 4.4.2、运行时是 4.4.3，这个包

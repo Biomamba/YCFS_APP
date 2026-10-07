@@ -17,7 +17,9 @@
 #
 #   所以走 GitHub Actions：**给的是真的 Windows 和真的 Mac**，
 #   windows-latest 上原生打包不需要 wine，macos-14 是 Apple 芯片、
-#   macos-13 是 Intel。仓库是 public ⇒ Actions 不计费。
+#   macos-15-intel 是 Intel（原来是 macos-13，它 2025-12-04 已停用 ——
+#   见下面 mac-bundle 那节的注释，那种 job 是"永远排队"而不是"报错"）。
+#   仓库是 public ⇒ 标准 runner 不计费。
 #
 # ---- ⚠️ 这个 workflow 还没跑通过 ---------------------------------------------
 #
@@ -121,15 +123,35 @@ jobs:
           npm install -g npm@11 || npm install -g npm@11 --force
           npm --version
 
-      - name: 装 shinyelectron
+      # ⚠️⚠️ **必须连 renv 一起装**，这不是"顺手多装一个"。2026-10-07 实测：
+      #    只装 shinyelectron 的话，再往下走一步就死在
+      #        ℹ Preparing application files...
+      #        打包失败：there is no package called 'rlang'
+      #
+      #    这条链有三跳，每一跳单看都很合理，所以不看源码根本猜不到：
+      #      ① shinyelectron 用 `renv::dependencies()` 扫应用源码，推断出
+      #         "这个 app 要哪些 R 包" —— 而 `runtime_strategy: bundled` 正是
+      #         照这份清单往便携 R 里装包。**没有它，打出来的包能打开、一用
+      #         就废**（依赖一个都没有），所以它把 renv 放在 Suggests 里但
+      #         当作硬依赖用。
+      #      ② renv 没装 → `requireNamespace("renv")` 为 FALSE →
+      #         走 `cli::cli_abort()`。
+      #      ③ 而 **`cli::cli_abort()` 的实现里直接写着 `rlang::abort(...)`**
+      #         （rlang 只是 cli 的 Suggests，cli 的 Imports 里没有它）⇒
+      #         真正没装的是 rlang，报出来的也是 rlang。
+      #    ⇒ 所以"装了 shinyelectron 却报 rlang 找不到"是正常的，
+      #      两个包都得装。
+      - name: 装 shinyelectron + renv + rlang
         shell: Rscript {0}
-        run: install.packages("shinyelectron", repos = "https://cloud.r-project.org")
+        run: install.packages(c("shinyelectron", "renv", "rlang"), repos = "https://cloud.r-project.org")
 
       - name: 报环境（出问题时有据可查）
         shell: bash
         run: |
           node --version; npm --version
           Rscript --no-environ -e 'cat(R.version.string, "\n")'
+          # 上面那条链再断一次的话，这一行会直接把断点打出来
+          Rscript --no-environ -e 'cat("renv:", requireNamespace("renv", quietly=TRUE), " rlang:", requireNamespace("rlang", quietly=TRUE), "\n")'
 
       - name: 打包
         shell: bash
@@ -160,9 +182,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-14   # Apple 芯片
+          - runner: macos-14        # Apple 芯片（M 系）
             arch: arm64
-          - runner: macos-13   # Intel
+          # ⚠️⚠️ 这里原来是 macos-13。**macos-13 已于 2025-12-04 停用**，
+          #    而用它写的 job **不会报错、只会永远 queued** —— 实测：从创建
+          #    那一刻起一直 queued，日志一个字都没有。这种"没有失败的失败"
+          #    最容易被读成"还在排队"，其实是没有这种机器了。
+          #    Intel 的标准 runner 现在叫 macos-15-intel，公开仓库照样免费。
+          # ⚠️ 但它是过渡品：Apple 已停掉 x86_64，GitHub 明说 macOS 15 镜像
+          #    2027 年秋退役后就不再提供任何 Intel runner。到时候要么
+          #    放弃 Intel Mac，要么只剩付费的 -large。
+          - runner: macos-15-intel  # Intel x86_64
             arch: x86_64
     runs-on: ${{ matrix.runner }}
     steps:
@@ -171,6 +201,30 @@ jobs:
       - uses: r-lib/actions/setup-r@v2
         with:
           r-version: ${{ env.R_VERSION }}
+
+      # ⚠️ 一次性诊断（2026-10-07）。mac-bundle 连着几轮都死在同一行：
+      #      build_macos_bundle.sh:135
+      #        Rscript --no-environ -e 'cat(paste0(R.version$major, ".", sub("\\..*$", ...)))'
+      #    报 `Error: '\.' is an unrecognized escape ... (<input>:1:40)`，
+      #    也就是 **R 收到的是单反斜杠**（`\.`）。而：
+      #      · 那一行在远端是**逐字节正确**的（从 contents API 取回比对过）；
+      #      · 同一个写法在 ubuntu 上跑得通（win-bundle 全绿）；
+      #      · 本地把单个反斜杠喂给 R，报错连列号 40 都一模一样。
+      #    ⇒ 只能是 mac 上某个环节把单引号里的 `\\` 吃成了 `\`，但"是谁吃的"
+      #      靠读代码推不出来。这一步直接把答案打出来，查完就删。
+      - name: 诊断——单引号里的反斜杠（一次性，查完删）
+        run: |
+          echo "bash：$(bash --version | head -1)"
+          echo "bash 路径：$(command -v bash)"
+          echo "Rscript：$(command -v Rscript)"
+          echo "--- A. 照原样直接跑一遍 ---"
+          if Rscript --no-environ -e 'cat(paste0(R.version$major, ".", sub("\\..*$", "", R.version$minor)))'; then
+            echo " ← 成功（那问题不在这一句本身）"
+          else
+            echo " ← ★失败（这一句在 mac 上就是跑不通）"
+          fi
+          echo "--- B. 脚本里那一行的字节（看 \\ 到底几个）---"
+          grep -n 'BUILD_RVER=' desktop/build_macos_bundle.sh | head -1 | od -c | head -8
 
       - name: 组装（${{ matrix.arch }}）
         run: bash desktop/build_macos_bundle.sh out ${{ matrix.arch }}
@@ -193,9 +247,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-14
+          - runner: macos-14        # Apple 芯片（M 系）
             arch: arm64
-          - runner: macos-13
+          # ⚠️ macos-13 已停用（2025-12-04），用它写的 job 只会永远 queued、
+          #    不报错。Intel 现在的标准 runner 是 macos-15-intel。
+          #    详见 mac-bundle 那一节的注释。
+          - runner: macos-15-intel  # Intel x86_64
             arch: x64
     runs-on: ${{ matrix.runner }}
     steps:
@@ -215,8 +272,13 @@ jobs:
           npm install -g npm@11 || npm install -g npm@11 --force
           npm --version
 
-      - name: 装 shinyelectron
-        run: Rscript --no-environ -e 'install.packages("shinyelectron", repos = "https://cloud.r-project.org")'
+      # ⚠️ renv + rlang 必须一起装，理由见 win-exe 那一段的长注释
+      #    （2026-10-07 实测：只装 shinyelectron 会死在
+      #     "打包失败：there is no package called 'rlang'"）。
+      - name: 装 shinyelectron + renv + rlang
+        run: |
+          Rscript --no-environ -e 'install.packages(c("shinyelectron", "renv", "rlang"), repos = "https://cloud.r-project.org")'
+          Rscript --no-environ -e 'cat("renv:", requireNamespace("renv", quietly=TRUE), " rlang:", requireNamespace("rlang", quietly=TRUE), "\n")'
 
       # .icns 只能在 macOS 上生成（sips + iconutil 都是系统自带的）。
       # 仓库里因此只放源图 desktop/app.png（1024×1024），图标在这里现做。

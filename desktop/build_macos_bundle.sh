@@ -132,7 +132,17 @@ Rscript --no-environ "$REPO/desktop/fetch_win_pkgs.R" \
 say "复制应用文件"
 # ⚠️ R.version$minor 是 **"4.3"** 这种带补丁号的（R 4.4.3 -> minor="4.3"），
 #    直接 paste 出来是 "4.4.3"；要的是 major.minor，所以先把 minor 的补丁位砍掉。
-BUILD_RVER="$(Rscript --no-environ -e 'cat(paste0(R.version$major, ".", sub("\\..*$", "", R.version$minor)))')"
+#
+# ⚠️⚠️ 正则**故意写成 `[.]` 而不是 `\\.`**（2026-10-07）。原来写的是
+#    `sub("\\..*$", ...)`，在 macOS runner 上 R 收到的是 `"\..*$"` —— **单**反斜杠，
+#    当场 `Error: '\.' is an unrecognized escape in character string (<input>:1:40)`，
+#    这个 job 一秒都过不去。而同一个写法在 ubuntu 上是好的（win-bundle 全绿）、
+#    在本地也是好的，远端文件又逐字节正确 —— 也就是**"谁把 `\\` 吃成了 `\`"
+#    这个问题当时没有答案**。
+#    `[.]` 是"字符类里只有一个点"，语义和 `\.` 完全等价，而**一个反斜杠都不用**，
+#    于是这个 job 不必先等那个答案。
+#    （workflow 里留了一步"诊断——单引号里的反斜杠"，就是为了把那个答案问出来。）
+BUILD_RVER="$(Rscript --no-environ -e 'cat(paste0(R.version$major, ".", sub("[.].*$", "", R.version$minor)))')"
 # ⚠️ 比到 **minor**，不比 patch —— 和 desktop/bytecode_app.R 里那道闸门同一个
 #    判据（那里有实测：4.4.2 打的字节码在 4.4.3 里跑，无警告、仍是 BCODESXP）。
 [ "$BUILD_RVER" = "${RVER%.*}" ] || die "打包用的 R 是 ${BUILD_RVER}，而包里的运行时是 ${RVER}（minor 不同）。
