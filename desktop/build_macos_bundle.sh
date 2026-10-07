@@ -145,9 +145,10 @@ chmod +x "$STAGE/runtime/R/bin/Rscript" "$STAGE/runtime/R/bin/R" 2>/dev/null || 
 FC_D="$STAGE/runtime/R/fontconfig/fonts/conf.d"
 FC_A="$STAGE/runtime/R/fontconfig/fontconfig/conf.avail"
 if [ -d "$FC_D" ]; then
-  fc_abs=0; fc_fixed=0
+  fc_abs=0; fc_fixed=0; fc_link=0
   for l in "$FC_D"/*.conf; do
     [ -L "$l" ] || continue
+    fc_link=$((fc_link + 1))
     case "$(readlink "$l")" in
       /*) fc_abs=$((fc_abs + 1))
           base="$(basename "$l")"
@@ -158,10 +159,18 @@ if [ -d "$FC_D" ]; then
           ;;
     esac
   done
-  say "  fontconfig：绝对链接 ${fc_abs} 条 → 改成相对 ${fc_fixed} 条"
+  # 把**分母**也打出来：只报"改了 N 条"的话，"链接一条都没有"（上一段整段被
+  # 跳过了）在日志里长得和"全部改好了"一模一样。下面那条 chk 会判死，这里先给数。
+  say "  fontconfig：conf.d 下符号链接 ${fc_link} 条，其中绝对 ${fc_abs} 条 → 改成相对 ${fc_fixed} 条"
   # 少改一条就是"某些字族回退在用户机器上失效"，而这件事**没有任何报错**，
   # 所以这里直接判死，不留活口。
   [ "$fc_fixed" -eq "$fc_abs" ] || die "fontconfig 有绝对链接没改过来（${fc_abs} 条里只改了 ${fc_fixed} 条）—— 见上面注释：用户机器上会静默失效"
+else
+  # ⚠️ 走到这儿说明这个运行时里没有 fontconfig（Windows 那份 R 就是纯 zip、
+  #    没有 fontconfig，但那是**另一个脚本**的事；macOS 这份一直是有的）。
+  #    不 die —— 上游真去掉了 fontconfig 的话这条不该拦发布。但**必须出声**：
+  #    安静跳过的话，下面那条 chk 量到 0 条链接也无从判断是"没有了"还是"没做"。
+  say "  ⚠️ fontconfig/conf.d 不在这个运行时里（$FC_D）—— 上面那段绝对链接的修复这轮没做"
 fi
 
 # ---- 2. R 包（macOS 二进制）------------------------------------------------
@@ -259,9 +268,22 @@ chk "libR.dylib 在（macOS 版 R 的核心）" \
 #   两边一致，所以判它。
 # ⚠️ 用 R 写而不是 `find -lname '/*'`：macOS 的 find 是 BSD 的，`-lname` 有没有
 #    不保证（这个文件里判 JSON 那一条也是同样的理由换成 R 的）。
-#    Sys.readlink() 对非链接返回 ""，startsWith("", "/") 是 FALSE ⇒ 天然过滤掉。
+#    Sys.readlink() 对非链接返回 ""，`nzchar()` 天然过滤掉。
+#
+# ⚠️⚠️ 这一条**原本是会空转的**：只判"有没有指向绝对路径的链接"，那么
+#    `runtime/R` 整个不在、或者那 17 条链接被删光、或者 list.files 因为权限
+#    什么都没列出来 —— 三种情况下 `a` 都是空的 ⇒ **绿**。"一条都没有"和
+#    "一条都没问题"在输出里长得一样。按本仓规矩（拿不到就跳过 = 假绿，比红更坏）
+#    补两样东西：
+#      ① **把数出来的条数打出来**（链接 N 条：绝对 a、相对 r、相对中断链 d）——
+#         日志里看得见分母，下一个人不用猜；
+#      ② **下限**：链接 < 1 条直接判红。正常的 portable R 里链接是两位数的。
+#    顺带补一档**相对但断链**：原来的写法只认"绝对"，而把相对路径拼错
+#    （`../../wrong/x.conf`）时它照样是绿的 —— 而 fontconfig 读不到的 conf 是
+#    **静默跳过**，所以拼错和断链在用户机器上完全同病。这里按**链接自己的目录**
+#    解析相对目标，解析不到就算红。
 chk "★ runtime/R 下没有指向绝对路径的符号链接（fontconfig 那 17 条就是这个坑）" \
-    "Rscript --no-environ -e 'rr <- \"$STAGE/runtime/R\"; f <- list.files(rr, recursive=TRUE, all.files=TRUE, full.names=TRUE); t <- Sys.readlink(f); b <- t[startsWith(t, \"/\")]; if (length(b)) cat(\"  指向绝对路径的：\", paste(b, collapse=\"  \"), \"\n\"); quit(status = if (length(b)) 1L else 0L)'"
+    "Rscript --no-environ -e 'rr <- \"$STAGE/runtime/R\"; f <- list.files(rr, recursive=TRUE, all.files=TRUE, full.names=TRUE); t <- Sys.readlink(f); L <- nzchar(t); a <- f[L][startsWith(t[L], \"/\")]; r <- f[L][!startsWith(t[L], \"/\")]; tr <- t[L][!startsWith(t[L], \"/\")]; d <- r[!file.exists(file.path(dirname(r), tr))]; cat(sprintf(\"  符号链接 %d 条：绝对 %d、相对 %d、相对中断链 %d\n\", sum(L), length(a), length(r), length(d))); if (length(a)) cat(\"  指向绝对路径的：\", paste(a, collapse=\"  \"), \"\n\"); if (length(d)) cat(\"  相对但断链的：\", paste(d, collapse=\"  \"), \"\n\"); quit(status = if (length(a) || length(d) || sum(L) < 1L) 1L else 0L)'"
 chk "app.R 在"                           "[ -f '$STAGE/app.R' ]"
 # ★ 这一组是"字节码真的打进去了"。
 chk "★ 分发包里**没有** R/ 目录（源码树不该发出去）" "[ ! -e '$STAGE/R' ]"
