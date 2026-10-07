@@ -151,6 +151,34 @@ preflight <- function() {
       "① npm 版本太低（是 %s，要 >= 11.5）。它会跟着 Node 一起升级。", mv))
   }
 
+  # ⚠️⚠️ 2026-10-07：**shinyelectron 的 Suggests 里有几个是它打包路径上真用的**，
+  #    没装的表现是一句**和真实原因毫无关系**的英文报错。已经在 CI 上撞了三次：
+  #
+  #      包      在哪用的                                没装时那边报什么
+  #      renv    dependencies-r.R 探测 R 依赖清单        "there is no package called 'rlang'"
+  #      rlang   cli::cli_abort() 内部（cli 没声明它）    （就是上面那句，指的是它）
+  #      withr   utils.R 的 run_command_safe()           "Node.js is required but not found"
+  #
+  #    第三条最阴，值得单独说：run_command_safe() **整个函数体包在 tryCatch 里**，
+  #    `withr::local_tempdir()` 抛的"没有这个包"被 error= 处理器吞掉、统一成
+  #    `status = 1L`。调用方 validate_node_npm() 只看到"这条命令没跑成"，于是报
+  #    "Node.js is required but not found" —— 而 **node 明明在 PATH 上**（实测：
+  #    22.23.2 就在那儿，这份 preflight 自己都把它的绝对路径打出来了，下一步
+  #    还是被判成 not found）。照那句英文去查 Node 会查到一个死胡同。
+  #
+  #    ⇒ 与其等它跑十分钟再报那句假话，不如**开工前一秒**直接说清楚缺什么。
+  soft <- c("renv", "rlang", "withr")
+  absent <- soft[!vapply(soft, requireNamespace, logical(1), quietly = TRUE)]
+  if (length(absent)) {
+    problems <- c(problems, sprintf(
+      paste0("③ 少了 shinyelectron **运行时**要用的包：%s\n",
+             "     这几个写在它的 Suggests 里，但打包这条路真的会调到；缺了会报\n",
+             "     一句和真实原因无关的英文错（如 'Node.js is required but not found'）。\n",
+             "     装上：Rscript -e 'install.packages(c(%s))'"),
+      paste(absent, collapse = ", "),
+      paste(sprintf('"%s"', absent), collapse = ", ")))
+  }
+
   os <- .Platform$OS.type
   # ★ 2026-10-07：这段原来只问"是不是 Windows"，因为当时目标只有 win。
   #   现在 mac 走同一份脚本，判据就得看**目标平台**，不能只看宿主机。
@@ -304,6 +332,8 @@ res <- tryCatch(
     say("按经验，先看这几条：")
     say("  · Node 是不是 >= 22（node --version）")
     say("  · npm 能不能连上 registry（npm ping）")
+    say("  · renv / rlang / withr 装了没有 —— shinyelectron 把它们放在 Suggests，")
+    say("    却是打包路径上真用的，缺一个就报一句和原因无关的英文错（preflight 已拦）")
     say("  · Windows 目标在非 Windows 上需要 wine")
     say("  · 磁盘够不够（Electron + R 运行时，中间产物 1 GB 起）")
     quit(status = 1)

@@ -181,14 +181,23 @@ GitHub 单文件限 100 MB，仓库也不该背这个重量 —— 走 Releases�
 
 ## 二、推
 
+⚠️ **不要在打包机上跑 \`git push\`。** 2026-10-07 实测：那台机器到
+\`github.com\` 的 TCP 成功率只有 3/8，\`git push\` 会一直等到超时再退出
+（exit 124）；而到 \`api.github.com\` 又快又稳。所以推的是 **Git API**，
+既不是 ssh、也不是 git 的 https 传输。
+
 \`\`\`bash
 # 1) 先在 GitHub 上建一个**空**仓库：Biomamba/YCFS_APP
 #    不要勾 "Add a README" / ".gitignore" / "license"（勾了要先 pull）
-
-cd $OUT
-git remote add origin git@github.com:Biomamba/YCFS_APP.git   # 没配 SSH 就用 https
-git push -u origin main
+# 2) 装凭据（只需一次；token 在**你自己的终端**里粘贴，不回显、不进历史）
+bash desktop/setup_github_cred.sh
+# 3) 推
+python3 desktop/push_via_api.py $OUT --force
 \`\`\`
+
+\`--force\` 在这条路上是**快进**，不是覆盖：脚本建的新提交以远端现有提交为
+**父提交**，旧提交仍在历史里（只是不再是分支尖）。
+推完脚本会自己回读一次 ref 并核对 tree sha —— 看到 \`一致 ✓\` 才算成。
 
 ## 三、发 Release
 

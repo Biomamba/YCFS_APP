@@ -261,9 +261,15 @@ def main():
     cur = gh("GET", refpath, not_found_ok=True)
     exist = (cur or {}).get("object", {}).get("sha")
     if exist and not args.force:
+        # ⚠️ 这条闸门是**第一次推**（远端还空着）时留下的，措辞是错的 ——
+        #    实测（2026-10-07）它把一次正常的**快进**说成了"旧提交变孤儿"：
+        #    下面建 commit 时写的是 `parents: [exist]`，也就是新提交**是**
+        #    远端那个提交的子提交，旧的仍在历史里、只是不再是分支尖。
+        #    所以 --force 在这里是安全的常规操作，不是破坏性操作。
+        #    （真正会丢东西的是"换个分支名"，那才会让 main 停在原地。）
         die("远端 %s 已经有 %s 了（%s）。\n"
-            "   要么换个分支名，要么加 --force —— 但 --force 会让现有那个提交\n"
-            "   变成孤儿（不是删掉，是没人指向它了）。看清楚再决定。"
+            "   加 --force 继续：新提交会以它为**父提交**（快进），它不会消失。\n"
+            "   换分支名也可以，但那才是让 main 停在旧提交上。"
             % (args.repo, args.branch, exist[:10]))
     say("远端 %s 分支：%s" % (args.branch, exist[:10] if exist else "（还没有，全新）"))
 

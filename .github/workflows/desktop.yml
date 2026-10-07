@@ -141,9 +141,21 @@ jobs:
       #         真正没装的是 rlang，报出来的也是 rlang。
       #    ⇒ 所以"装了 shinyelectron 却报 rlang 找不到"是正常的，
       #      两个包都得装。
-      - name: 装 shinyelectron + renv + rlang
+      #
+      #    ⚠️ 还有第三个：**withr**。同一个坑的另一个入口 ——
+      #      `shinyelectron::run_command_safe()` 第一句就是
+      #      `withr::local_tempdir()`，而整个函数体包在 tryCatch 里 ⇒ 缺 withr
+      #      时抛的"没有这个包"被 error= 处理器吞掉、统一成 `status = 1L`，
+      #      调用方（validate_node_npm）只能得出"命令没跑成"，于是报
+      #         ✖ Error: Node.js is required but not found
+      #      —— **而 node 就在 PATH 上**（实测 2026-10-07：preflight 都把
+      #      22.23.2 的绝对路径打出来了，下一步照样说 not found）。照那句英文
+      #      去查 Node 是死胡同。
+      #    ⇒ renv / rlang / withr 三个一起装。build_exe.R 的 preflight 现在
+      #      也会在开工前一秒拦这一条，报清楚缺哪个（不再等十分钟看假英文）。
+      - name: 装 shinyelectron + renv + rlang + withr
         shell: Rscript {0}
-        run: install.packages(c("shinyelectron", "renv", "rlang"), repos = "https://cloud.r-project.org")
+        run: install.packages(c("shinyelectron", "renv", "rlang", "withr"), repos = "https://cloud.r-project.org")
 
       - name: 报环境（出问题时有据可查）
         shell: bash
@@ -151,7 +163,7 @@ jobs:
           node --version; npm --version
           Rscript --no-environ -e 'cat(R.version.string, "\n")'
           # 上面那条链再断一次的话，这一行会直接把断点打出来
-          Rscript --no-environ -e 'cat("renv:", requireNamespace("renv", quietly=TRUE), " rlang:", requireNamespace("rlang", quietly=TRUE), "\n")'
+          Rscript --no-environ -e 'for (p in c("renv","rlang","withr")) cat(p, ":", requireNamespace(p, quietly=TRUE), " ")'; echo
 
       - name: 打包
         shell: bash
@@ -202,29 +214,44 @@ jobs:
         with:
           r-version: ${{ env.R_VERSION }}
 
-      # ⚠️ 一次性诊断（2026-10-07）。mac-bundle 连着几轮都死在同一行：
-      #      build_macos_bundle.sh:135
-      #        Rscript --no-environ -e 'cat(paste0(R.version$major, ".", sub("\\..*$", ...)))'
-      #    报 `Error: '\.' is an unrecognized escape ... (<input>:1:40)`，
-      #    也就是 **R 收到的是单反斜杠**（`\.`）。而：
-      #      · 那一行在远端是**逐字节正确**的（从 contents API 取回比对过）；
-      #      · 同一个写法在 ubuntu 上跑得通（win-bundle 全绿）；
-      #      · 本地把单个反斜杠喂给 R，报错连列号 40 都一模一样。
-      #    ⇒ 只能是 mac 上某个环节把单引号里的 `\\` 吃成了 `\`，但"是谁吃的"
-      #      靠读代码推不出来。这一步直接把答案打出来，查完就删。
+      # ⚠️ 一次性诊断（2026-10-07），查完就删。
+      #
+      #   【已知】mac-bundle 连着几轮都死在同一行（build_macos_bundle.sh:135）：
+      #       Rscript --no-environ -e 'cat(paste0(R.version$major, ".", sub("\\..*$", ...)))'
+      #     报 `Error: '\.' is an unrecognized escape ... (<input>:1:40)`。
+      #     本地复现钉死了这个列号的含义：**R 收到的是单个反斜杠**才对得上
+      #     1:40（两个反斜杠时这句正常输出 4.4，不报错）。
+      #     同时排除了：远端文件逐字节正确（contents API 取回比对过）、
+      #     同一写法在 ubuntu 上跑得通（win-bundle 全绿）、bash 引号没断（bash -n 过）。
+      #
+      #   【这一轮要问的】到底是谁吃的。同一段代码走两条路，一次问清：
+      #     · 走**文件**（heredoc 带引号，shell 一个字都不碰）—— 成不成？
+      #     · 走 **-e**                                            —— 成不成？
+      #   若"文件成、-e 不成"，那就是 Rscript 转发 `-e` 参数的环节，跟引号无关；
+      #   下面 `file` / `head` 那两行会直接暴露 /usr/local/bin/Rscript 是不是
+      #   一个 shell 包装器（CRAN 的 mac 版 R 里，`R` 就是脚本，Rscript 待查）。
       - name: 诊断——单引号里的反斜杠（一次性，查完删）
         run: |
           echo "bash：$(bash --version | head -1)"
-          echo "bash 路径：$(command -v bash)"
-          echo "Rscript：$(command -v Rscript)"
-          echo "--- A. 照原样直接跑一遍 ---"
-          if Rscript --no-environ -e 'cat(paste0(R.version$major, ".", sub("\\..*$", "", R.version$minor)))'; then
-            echo " ← 成功（那问题不在这一句本身）"
-          else
-            echo " ← ★失败（这一句在 mac 上就是跑不通）"
-          fi
-          echo "--- B. 脚本里那一行的字节（看 \\ 到底几个）---"
-          grep -n 'BUILD_RVER=' desktop/build_macos_bundle.sh | head -1 | od -c | head -8
+
+          echo
+          echo "== 1. Rscript 是什么 =="
+          ls -la /usr/local/bin/Rscript
+          file  /usr/local/bin/Rscript
+          # 如果是 shell 包装器，这几行会把它怎么转发参数摊开
+          head -c 400 /usr/local/bin/Rscript | cat -v | head -12
+
+          echo
+          echo "== 2. 同一段代码，走**文件**（heredoc 带引号，shell 不碰）=="
+          cat > /tmp/t.R <<'REOF'
+          cat("  file: nchar=", nchar("\\."), " sub=", sub("\\..*$", "", "4.4.3"), "\n")
+          REOF
+          od -c /tmp/t.R | head -2
+          Rscript --no-environ /tmp/t.R || echo "  ★文件这条路也失败"
+
+          echo
+          echo "== 3. 同一段代码，走 -e =="
+          Rscript --no-environ -e 'cat("  -e:   nchar=", nchar("\\."), " sub=", sub("\\..*$", "", "4.4.3"), "\n")' || echo "  ★-e 这条路失败"
 
       - name: 组装（${{ matrix.arch }}）
         run: bash desktop/build_macos_bundle.sh out ${{ matrix.arch }}
@@ -272,13 +299,15 @@ jobs:
           npm install -g npm@11 || npm install -g npm@11 --force
           npm --version
 
-      # ⚠️ renv + rlang 必须一起装，理由见 win-exe 那一段的长注释
+      # ⚠️ renv + rlang + withr 必须一起装，理由见 win-exe 那一段的长注释
       #    （2026-10-07 实测：只装 shinyelectron 会死在
-      #     "打包失败：there is no package called 'rlang'"）。
-      - name: 装 shinyelectron + renv + rlang
+      #     "打包失败：there is no package called 'rlang'"；
+      #     补上 rlang 之后又死在 withr —— 报的是
+      #     "Node.js is required but not found"，跟真实原因毫无关系）。
+      - name: 装 shinyelectron + renv + rlang + withr
         run: |
-          Rscript --no-environ -e 'install.packages(c("shinyelectron", "renv", "rlang"), repos = "https://cloud.r-project.org")'
-          Rscript --no-environ -e 'cat("renv:", requireNamespace("renv", quietly=TRUE), " rlang:", requireNamespace("rlang", quietly=TRUE), "\n")'
+          Rscript --no-environ -e 'install.packages(c("shinyelectron", "renv", "rlang", "withr"), repos = "https://cloud.r-project.org")'
+          Rscript --no-environ -e 'for (p in c("renv","rlang","withr")) cat(p, ":", requireNamespace(p, quietly=TRUE), " ")'; echo
 
       # .icns 只能在 macOS 上生成（sips + iconutil 都是系统自带的）。
       # 仓库里因此只放源图 desktop/app.png（1024×1024），图标在这里现做。
