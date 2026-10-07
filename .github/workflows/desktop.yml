@@ -1,0 +1,307 @@
+# =============================================================================
+# 桌面版打包（Windows / macOS）
+# =============================================================================
+#
+# 为什么会有这个文件（2026-10-07）：
+#
+#   打包机是 Linux，两件事在那台机器上做不了 ——
+#     · Windows 单文件 exe：交叉编译要 wine（electron-builder 往 exe 里塞图标
+#       和版本信息用的是 rcedit，那是个 Windows 程序），而 conda-forge 的
+#       linux-64 没有 wine。**这是当时唯一的拦路虎。**
+#     · macOS 单文件：electron-builder 在非 macOS 上直接拒绝出 mac 目标
+#       （dmg 要 hdiutil、签名要 codesign，都是系统自带、没有替代实现）。
+#
+#   想用虚拟机绕：不行。那台机器 `/dev/kvm` 不存在（没有硬件虚拟化），
+#   qemu 没装（装要 sudo 而 sudo 要密码），docker 的 socket 也连不上。
+#   而且就算都能解决，macOS 按 Apple 的 EULA 只能跑在 Apple 硬件上。
+#
+#   所以走 GitHub Actions：**给的是真的 Windows 和真的 Mac**，
+#   windows-latest 上原生打包不需要 wine，macos-14 是 Apple 芯片、
+#   macos-13 是 Intel。仓库是 public ⇒ Actions 不计费。
+#
+# ---- ⚠️ 这个 workflow 还没跑通过 ---------------------------------------------
+#
+#   第一版的定位是**探路**：`shinyelectron` 在 mac 上到底吐出什么
+#   （.dmg？.zip？裸 .app？）、bundled 策略在 CI 里下不下得动便携 R，
+#   这些本地一条都验不了。所以每个 job 都 `fail-fast: false`，
+#   一个平台挂了不影响另外几个，挂了就看它那一段日志。
+#
+# ---- R 版本必须钉 4.4.x ------------------------------------------------------
+#
+#   `desktop/build_bytecode.R` 会把 app.R + R/*.R 编成字节码（app.rds/lib.rds），
+#   **用的是打包机上这份 R**；而运行时是包里自带的便携 R 4.4.3。
+#   两边 minor 必须一致（`run_local.R` 的加载器会拿它对指纹）。
+#   ⇒ 钉 4.4.3，别写 'release'（那会拿到 4.5.x，打出来的字节码运行时读不了）。
+#
+#   ⚠️ 但 minor 一致就够了，patch 不用相等：打包机 4.4.2 配运行时 4.4.3 是
+#     验证过的组合（见 desktop/README.md 第五节）。
+# =============================================================================
+
+name: desktop
+
+on:
+  # 手动触发。**默认不自动跑** —— 打包要十几分钟、产物几百 MB，
+  # 不该每次 push 都来一遍。
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: '打完后发 Release 用的标签（如 v16.11）。留空则只上传 artifact，不建 Release。'
+        required: false
+        default: ''
+  push:
+    tags:
+      - 'v*'
+
+# 默认 token 是只读的；发 Release 要写权限。不用 PAT —— 这是仓库自己的
+# GITHUB_TOKEN，作用域就限在这个仓库。
+permissions:
+  contents: write
+
+env:
+  # 便携 R 的版本，和 desktop/build_windows_bundle.sh / build_macos_bundle.sh
+  # 里的 DSAPP_RUNTIME_RVER 默认值保持一致。
+  R_VERSION: '4.4.3'
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Windows 免安装 zip
+  # ---------------------------------------------------------------------------
+  # 跑在 ubuntu 上：这个脚本全程只是下载 + 解压 + 打 zip，**不需要 Windows**
+  # （R 运行时和 R 包都是现成的 Windows 二进制）。ubuntu 上有原生 bash/zip，
+  # 比在 windows runner 上凑 Git Bash 省事得多。
+  win-bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: ${{ env.R_VERSION }}
+          use-public-rspm: true
+
+      - name: 组装
+        run: bash desktop/build_windows_bundle.sh out
+
+      - name: 列出产出
+        run: ls -la out/*.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: win-bundle
+          path: out/*.zip
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # Windows 单文件 exe
+  # ---------------------------------------------------------------------------
+  # ★ 这条路就是当初那台 Linux 上打不出来的那条。在真 Windows 上，
+  #   electron-builder 用它自己的工具往 exe 里写资源，不需要 wine。
+  win-exe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: ${{ env.R_VERSION }}
+
+      # shinyelectron 0.2.1 要求 Node >= 22、npm >= 11.5（它 DESCRIPTION 里的
+      # SystemRequirements）。runner 上预装的那份不一定够新，钉死。
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 装 shinyelectron
+        shell: Rscript {0}
+        run: install.packages("shinyelectron", repos = "https://cloud.r-project.org")
+
+      - name: 报环境（出问题时有据可查）
+        shell: bash
+        run: |
+          node --version; npm --version
+          Rscript --no-environ -e 'cat(R.version.string, "\n")'
+
+      - name: 打包
+        shell: bash
+        run: Rscript --no-environ desktop/build_exe.R --plat=win --arch=x64 out
+
+      - name: 列出产出
+        shell: bash
+        run: find out -maxdepth 3 -type f \( -name '*.exe' -o -name '*.zip' \) -exec ls -la {} +
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: win-exe
+          # ⚠️ 这里**故意不写 if-no-files-found: error**：第一次跑就是在探
+          #    shinyelectron 到底往哪儿吐产物（可能在 exe_out/ 下再套一层）。
+          #    找不到东西时 build_exe.R 自己会 exit 1，用不着这一条兜。
+          path: |
+            out/**/*.exe
+            out/**/*.zip
+
+  # ---------------------------------------------------------------------------
+  # macOS 免安装 zip（两个架构各一份）
+  # ---------------------------------------------------------------------------
+  # ⚠️ **架构必须在真机上打**：arm64 和 x86_64 是两份不同的 CRAN 仓库，
+  #    拿错的表现是用户那边一 library() 报 "incompatible architecture"。
+  #    在对应的宿主上跑，自检里的"验回 zip 解出来符号链接还在不在"才有意义。
+  mac-bundle:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14   # Apple 芯片
+            arch: arm64
+          - runner: macos-13   # Intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: ${{ env.R_VERSION }}
+
+      - name: 组装（${{ matrix.arch }}）
+        run: bash desktop/build_macos_bundle.sh out ${{ matrix.arch }}
+
+      - name: 列出产出
+        run: ls -la out/*.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac-bundle-${{ matrix.arch }}
+          path: out/*.zip
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # macOS 单文件（.app / .dmg）
+  # ---------------------------------------------------------------------------
+  # ★ 这条路是原来"需要一台 Mac"的那条。现在这台 Mac 是 macos-14/13。
+  mac-app:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            arch: arm64
+          - runner: macos-13
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: ${{ env.R_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 装 shinyelectron
+        run: Rscript --no-environ -e 'install.packages("shinyelectron", repos = "https://cloud.r-project.org")'
+
+      # .icns 只能在 macOS 上生成（sips + iconutil 都是系统自带的）。
+      # 仓库里因此只放源图 desktop/app.png（1024×1024），图标在这里现做。
+      - name: 生成 app.icns
+        run: bash desktop/make_icns.sh
+
+      - name: 报环境
+        run: |
+          uname -m; node --version; npm --version
+          Rscript --no-environ -e 'cat(R.version.string, "\n")'
+
+      # ⚠️ 不签名的话，Apple 芯片上的 app 会被 Gatekeeper 直接判「已损坏」
+      #    （arm64 的二进制**必须**至少有一个签名，哪怕是临时的）。
+      #    electron-builder 找不到 Developer ID 时不一定替我们 ad-hoc 签，
+      #    所以自己来。正式的 Developer ID 签名 + 公证要 99 美元/年的账号，
+      #    那是另一件事。
+      - name: 打包
+        run: Rscript --no-environ desktop/build_exe.R --plat=mac --arch=${{ matrix.arch }} out
+
+      - name: ad-hoc 签名（没有 Developer ID 时的最低要求）
+        run: |
+          set -x
+          find out -maxdepth 4 -name '*.app' -print0 |
+            while IFS= read -r -d '' app; do
+              codesign --force --deep --sign - "$app" || echo "（签名失败，继续 —— 先看看产物长什么样）"
+              codesign -dv --verbose=2 "$app" 2>&1 | head -20
+            done
+
+      - name: 列出产出
+        run: find out -maxdepth 4 -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.app' \) -exec ls -ld {} +
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac-app-${{ matrix.arch }}
+          # 同上：第一次跑是探路，产物叫什么名字还不知道。
+          path: |
+            out/**/*.dmg
+            out/**/*.zip
+            out/**/*.app
+
+  # ---------------------------------------------------------------------------
+  # 汇总发 Release
+  # ---------------------------------------------------------------------------
+  # ⚠️ 为什么走 Release 而不是只用 artifact：**artifact 要登录才能下**
+  #    （公开仓库也一样），而 Release 附件是公开的。用户拿到的是链接，
+  #    不该为了下载还得先有个 GitHub 账号。
+  #
+  #    另外 artifact 是过一次 zip 的，mac 包里那 19 个符号链接会怎样不好说；
+  #    Release 附件是**原样上传、原样下载**，不经过第二层压缩。
+  release:
+    needs: [win-bundle, win-exe, mac-bundle, mac-app]
+    # 手动触发时：给了 release_tag 才发。tag 推送时：总发。
+    if: ${{ github.event_name == 'push' || inputs.release_tag != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 取回全部产物
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: 摊平 + 出校验和
+        run: |
+          mkdir -p flat
+          find dist -type f \( -name '*.zip' -o -name '*.exe' -o -name '*.dmg' \) \
+            -exec cp -v {} flat/ \;
+          cd flat && sha256sum * | tee SHA256SUMS.txt
+          echo "---"; ls -la
+
+      - name: 标签
+        id: tag
+        run: |
+          if [ -n "${{ inputs.release_tag }}" ]; then
+            echo "name=${{ inputs.release_tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: ${{ steps.tag.outputs.name }}
+          # 已存在就更新，别因为重跑一次就报"标签已存在"失败。
+          make_latest: true
+          fail_on_unmatched_files: false
+          body: |
+            桌面版打包产物（由 GitHub Actions 在本仓库源码上构建）。
+
+            | 文件 | 给谁 |
+            |---|---|
+            | `DS_App-Windows-*.zip` | Windows，解压后双击 `run_app.bat` |
+            | `*.exe` | Windows 单文件 |
+            | `DS_App-macOS-arm64-*.zip` | Mac（Apple 芯片 M1/M2/M3/M4） |
+            | `DS_App-macOS-x86_64-*.zip` | Mac（Intel） |
+            | `*.dmg` | Mac 单文件 |
+
+            ⚠️ 没有代码签名证书：Windows 上会弹「未知发布者」，macOS 上首次打开
+            被 Gatekeeper 拦（右键 →「打开」可以绕过）。`SHA256SUMS.txt` 可自行校验。
+          files: |
+            flat/*.zip
+            flat/*.exe
+            flat/*.dmg
+            flat/SHA256SUMS.txt

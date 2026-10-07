@@ -1,0 +1,1088 @@
+/* ===========================================================================
+ * codex 风格外壳（V6 item 2 + item 5）
+ * ===========================================================================
+ * 这一层只做两件事：
+ *   1. 两栏外壳（左栏 / 主区）的布局与两条**互相独立**的滚动条
+ *   2. 深色下必须单独调的几处观感
+ *
+ * 为什么单独一个文件而不是并进 app.css：app.css 是一整套在**浅色**底下
+ * 调好的组件样式，几百条规则。两套混在一起之后，"这条规则属于哪一层"
+ * 就说不清了，下一个人改配色时会不知道该动哪一条。
+ *
+ * ⚠️ 加载顺序：app.css → codex.css → （可能）Bootstrap 主题。
+ *    Bootstrap 是 bslib 主题的 htmlDependency，Shiny 可能把它插在静态
+ *    <link> **之后**（V5 那个 sticky 导航栏的 bug 就是这么来的）。
+ *    所以这里**不要**去覆盖 Bootstrap 已有的类（.navbar / .card /
+ *    .form-control 之类），只定义新类，或者用 .dsapp-* 前缀把特异性
+ *    抬上去。要覆盖 Bootstrap 的类，选择器至少写两层
+ *    （`.dsapp-shell .card`，而不是 `.card`）。
+ * =========================================================================== */
+
+/* ---------------------------------------------------------------------------
+ * 外壳：两栏 + 固定页脚
+ * ---------------------------------------------------------------------------
+ * 高度写死 calc(100vh - 页脚高度)。
+ *
+ * ⚠️ 不能用 height:100% —— body 上没有高度链。dsapp_main_ui() 的返回值是
+ *    塞进 uiOutput("app_root") 的，bslib 那套 page_fillable 依赖的
+ *    <body class="bslib-page-fill"> 在 renderUI 里会被浏览器忽略
+ *    （body 标签不参与 innerHTML），这一条 V5 就踩过。
+ *
+ * ⚠️ 页脚高度变量 --dsapp-footer-h 定义在 **skins.css 的 :root** 里（V16.6 之前
+ *    app.css 里也有一份，但 skins.css 后加载、权重相同，那份从来没生效过，
+ *    已经删掉）。两边必须用同一个变量：写死数字的话，改一处忘一处，表现是
+ *    主区底部被页脚盖住一截，而且只在某些视口高度下出现。
+ *    这里那个 `2.6rem` 的 fallback 只是"变量万一没加载"的兜底，别拿它当定义 ——
+ *    窄屏（≤479.98px）skins.css 会把它放大到 4.4rem，写死就露馅。
+ * ------------------------------------------------------------------------- */
+.dsapp-shell {
+  display: grid;
+  /* ★ V13.5 item 8：主菜单的宽度从写死的 264px 改成可调的变量。
+   *
+   *   ⚠️ fallback 那个 264 必须和 R/uiprefs.R 里 `menu_w` 的 def 一字不差 ——
+   *      对不上的表现和 sess_w 那条一样：没调过的账号看到一个宽度，随手一拖
+   *      又跳到另一个数。
+   *   ⚠️ 第一列用**固定**轨道（不是 minmax(0, ...)）：主菜单就该是可以被拖宽的
+   *      那一栏，让它跟着内容伸缩的话，会话标题一长整条菜单自己变宽，用户拖的
+   *      那个数也就没意义了。 */
+  grid-template-columns: var(--dsapp-menu-w, 264px) minmax(0, 1fr);
+  height: calc(100vh - var(--dsapp-footer-h, 2.6rem));
+  overflow: hidden;               /* 两条滚动条在子元素里，外壳自己不许滚 */
+  background: var(--bs-body-bg);
+  /* ⚠️ 必须 relative：主菜单那条分隔条是**绝对定位**的（见 .dsapp-rail-handle），
+   *    它要靠这里当包含块。少了这一句，把手会以最近的定位祖先为基准，
+   *    跑到页面左上角去 —— 而且它还能拖、还能存，只是摸不着。 */
+  position: relative;
+}
+
+/* ---------------------------------------------------------------------------
+ * 左侧栏
+ * ---------------------------------------------------------------------------
+ * 两段：品牌（不滚）/ 导航（**自己滚**）。
+ *
+ * ⚠️ V13.12 item 19 起滚动条落在 .dsapp-rail-nav 上（原来是第三段
+ *    「模型服务」那一格滚）。用户的原话是"模型模块在左侧应该是单独的滑块，
+ *    不要整个界面一个下滑块" —— 那件事没有变：仍然是左栏内部自己滚，
+     .dsapp-shell / .dsapp-rail 不滚。模型服务搬成了独立页，于是这一栏
+    只剩两段，滚动的责任归导航那一段。
+ * ------------------------------------------------------------------------- */
+.dsapp-rail {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;                  /* grid 子项默认 min-height:auto，会撑破外壳 */
+  background: var(--bs-tertiary-bg);
+  border-right: 1px solid var(--bs-border-color);
+  overflow: hidden;
+}
+
+.dsapp-rail-brand {
+  display: flex; align-items: center; gap: .55rem;
+  padding: .8rem .9rem;
+  border-bottom: 1px solid var(--bs-border-color);
+  flex: none;
+}
+.dsapp-rail-logo {
+  width: 28px; height: 28px; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 7px;
+  background: var(--bs-primary); color: #04120a;
+  font-size: .85rem;
+}
+.dsapp-rail-name { font-weight: 600; font-size: .95rem; letter-spacing: -.01em; }
+/* ⚠️ 品牌区那行小字（app.R:788 的 "言出法随生信 APP"）V13.12 item 19 改叫
+   -brand-sub 了：`.dsapp-rail-sub` 这个名字腾给**导航项**下面那行小字
+   （模型服务那一项用它显示当前模型名）。两处都是"小灰字"，但一个是靠右
+   贴着品牌名（margin-left:auto），一个是在标签下面另起一行 —— 混用一个
+   类名的话，改其中一个必然弄坏另一个。 */
+.dsapp-rail-brand-sub {
+  font-size: .68rem; color: var(--bs-secondary-color);
+  margin-left: auto; white-space: nowrap;
+}
+
+.dsapp-rail-nav {
+  display: flex; flex-direction: column;
+  gap: 2px; padding: .5rem;
+  /* ★ V13.12 item 19：模型服务搬成独立页之后，左栏只剩「品牌」和「导航」
+     两段，**滚动条就落在这一条上**（原来是落在下面那一格 .dsapp-rail-model
+     上的）。用户 2026 年那次的原话是"模型模块在左侧应该是单独的滑块，不要
+     整个界面一个下滑块" —— 那件事没有变：仍然是左栏内部自己滚，
+     页面本身（.dsapp-shell / .dsapp-rail）不滚。 */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  /* 滚到底/顶时不要把手势传给主区（触控板上一滚就滚过头） */
+  overscroll-behavior: contain;
+}
+.dsapp-rail-link {
+  display: flex; align-items: center; gap: .6rem;
+  padding: .42rem .6rem;
+  border-radius: 6px;
+  font-size: .875rem;
+  color: var(--bs-body-color);
+  text-decoration: none;
+  border-left: 2px solid transparent;
+  transition: background .1s ease, color .1s ease;
+}
+.dsapp-rail-link:hover { background: var(--bs-secondary-bg); color: var(--bs-body-color); }
+.dsapp-rail-link.active {
+  background: var(--bs-secondary-bg);
+  border-left-color: var(--bs-primary);
+  font-weight: 500;
+}
+.dsapp-rail-ico { width: 1.1rem; text-align: center; opacity: .8; }
+.dsapp-rail-link.active .dsapp-rail-ico { opacity: 1; color: var(--bs-primary); }
+
+/* ---- 导航项下面那行小字（V13.12 item 19）--------------------------------
+ *
+ * 只有「模型服务」那一项有，显示"当前在用哪个模型 / 未配置"。它是 V7 item 8
+ * 那块折叠面板摘要行的替代品 —— 那一格搬成独立页之后，这是全应用**唯一**
+ * 一处不进去就能看出在用哪个模型的地方。
+ *
+ * ⚠️ 文字必须包一层 flex 列（app.R 里的 .dsapp-rail-txt），让它掉到标签
+ *    **下面**。跟标签并排的话，左栏最窄 180px，模型名（"deepseek-chat" 这类，
+ *    还带厂商前缀）横着放必然溢出 —— 而溢出的表现是盖住别的项，不是换行。
+ * ⚠️ 长了要省略号 + title 里留全的（app.js 的 dsapp:rail-sub 会一起更新）。
+ *    不截断的话，一个超长模型名会把这一项撑高、和其它项不对齐。 */
+.dsapp-rail-txt {
+  display: flex; flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;                 /* flex 子项默认 min-width:auto，不给就截不断 */
+  line-height: 1.25;
+}
+.dsapp-rail-sub {
+  font-size: .68rem;
+  color: var(--bs-secondary-color);
+  font-weight: 400;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- 导航项的拖拽把手（V13.11 item 3）------------------------------------
+ *
+ * ⚠️ 它**始终占着位置**（固定的 .8rem 宽 + 负 margin 把整行往左挪回去），
+ *    只有透明度跟着 hover 变。做成"hover 才占位"的话（width: 0 → auto），
+ *    鼠标扫过这一栏时每一行的文字都会左右抖一下 —— 而这是一条导航栏，
+ *    鼠标天天在上面过。
+ *
+ * ⚠️ 用 margin-left 负值把多出来的这一格**吃进原来的内边距里**，而不是让
+ *    整行变宽：变宽的话 6 个入口的图标列不再对齐，而且栏拖窄（menu_w=180）
+ *    时"言出法随"四个字会被挤到换行。
+ *
+ * ⚠️ 透明度不能给 0：那等于藏起来，"可以拖"这件事就没人发现得了。给 .3
+ *    是"看得见、但不抢戏"，鼠标移上去才实。 */
+.dsapp-rail-grip {
+  flex: 0 0 auto;
+  width: .8rem; margin-left: -.35rem;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: .72rem; line-height: 1;
+  color: var(--bs-secondary-color);
+  opacity: .3;
+  cursor: grab;
+  border-radius: 3px;
+  /* 触摸屏上别把纵向滑动吃掉 —— 否则手机上想滚这一栏会变成拖排序。
+     （HTML5 拖放本来在触摸屏上也不触发，这里只是别把滚动也一起挡了。） */
+  touch-action: none;
+}
+.dsapp-rail-link:hover .dsapp-rail-grip { opacity: .8; }
+.dsapp-rail-grip:hover { opacity: 1; color: var(--bs-primary); }
+.dsapp-rail-grip:active { cursor: grabbing; }
+/* 键盘那条路：Tab 到它得看得见焦点在哪（否则按方向键不知道在挪谁）。 */
+.dsapp-rail-grip:focus-visible {
+  opacity: 1; outline: 2px solid var(--bs-primary); outline-offset: 1px;
+}
+.dsapp-rail-dragging { opacity: .45; }
+/* 落点提示：上边 / 下边一条横线。用 inset box-shadow 而不是 border ——
+   加 border 会让那一行**变高**，拖动过程中整栏跟着抖。 */
+.dsapp-rail-over-top { box-shadow: inset 0 2px 0 0 var(--bs-primary); }
+.dsapp-rail-over-bot { box-shadow: inset 0 -2px 0 0 var(--bs-primary); }
+
+/* ⚠️ V13.12 item 19 删掉了这一整段 `.dsapp-rail-model*`（约 90 行）：
+ *    那一格（<details> + 摘要行 + 里面那套压小一档的字号）随着模型服务搬成
+ *    独立页一起没有了。左栏的滚动条改挂在 .dsapp-rail-nav 上（见上面）。
+ *    搬走之后模型控件用的是主区的默认排版，和其它页一致 —— 原来那套
+ *    `.dsapp-rail-model label { font-size: .78rem }` 是给 264px 宽的窄栏
+ *    写的，留在这儿只会让新页面上的字莫名其妙地小一档。
+ *
+ *    这里原本还有一条 `.dsapp-rail-model .dsapp-maxtok-row > … { width: 5.5rem
+ *    !important }` 的反制规则（用来抵消上面那条 `width: 100% !important`）。
+ *    两条一起删掉之后，app.css 里 `.dsapp-maxtok-row > .form-group` 那条
+ *    `flex: 0 0 auto; width: 5.5rem` 正常生效 —— 滑块 + 输入框并排这件事
+ *    （V13.10 item 6）不受影响。 */
+
+/* 「生成参数」折叠区 */
+.dsapp-model-adv { margin-top: .35rem; }
+.dsapp-model-adv > summary {
+  cursor: pointer; list-style: none;
+  font-size: .78rem; color: var(--bs-secondary-color);
+  padding: .25rem 0;
+}
+.dsapp-model-adv > summary::-webkit-details-marker { display: none; }
+.dsapp-model-adv > summary::before {
+  content: ""; display: inline-block; vertical-align: middle;
+  width: 0; height: 0; margin-right: .35rem;
+  border-left: 4px solid currentColor;
+  border-top: 3.5px solid transparent;
+  border-bottom: 3.5px solid transparent;
+  opacity: .55; transition: transform .15s;
+}
+.dsapp-model-adv[open] > summary::before { transform: rotate(90deg); }
+.dsapp-model-adv[open] > summary { margin-bottom: .4rem; }
+
+/* Key 保存状态那一行 */
+.dsapp-key-state {
+  font-size: .72rem; line-height: 1.35;
+  color: var(--bs-secondary-color);
+  margin-bottom: .55rem;
+}
+.dsapp-key-state.is-saved { color: var(--bs-success); }
+.dsapp-key-state a { color: inherit; text-decoration: underline; cursor: pointer; }
+
+/* ---------------------------------------------------------------------------
+ * 主区
+ * ------------------------------------------------------------------------- */
+.dsapp-main {
+  display: flex; flex-direction: column;
+  min-width: 0; min-height: 0;
+  overflow: hidden;
+}
+.dsapp-topbar {
+  flex: none;
+  display: flex; align-items: center; gap: .75rem;
+  padding: .5rem .9rem;
+  border-bottom: 1px solid var(--bs-border-color);
+  background: var(--bs-body-bg);
+}
+.dsapp-topbar-title { font-size: .9rem; font-weight: 600; }
+.dsapp-topbar-right {
+  margin-left: auto;
+  display: flex; align-items: center; gap: .9rem;
+  font-size: .82rem;
+}
+.dsapp-user { color: var(--bs-secondary-color); }
+.dsapp-logout { color: var(--bs-secondary-color); text-decoration: none; }
+.dsapp-logout:hover { color: var(--bs-danger); }
+
+/* 各页内容区：**第二条独立的滚动条** */
+.dsapp-main-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* navset_hidden 渲染出来的是 .tabbable > (.nav + .tab-content > .tab-pane)。
+   ⚠️ 选择器要写 .tabbable，**不能**写 `.dsapp-main-body > .tab-content` ——
+   bslib 的 navset 在两者之间插了一层 .tabbable，直接子选择器一个都匹配不上，
+   而且不报错（CSS 里没有"选择器没匹配到"这种提示），表现只是"撑满没生效"。
+
+   用 min-height/flex 而不是 height:100%：
+     · 内容比视口矮（对话页刚打开）→ 页签被撑满，输入框钉在底部；
+     · 内容比视口高（设置页、任务表）→ 页签长出去，由 .dsapp-main-body 滚。
+   height:100% 会把第二种情况变成**裁掉**，而且裁掉的部分滚不出来。 */
+.dsapp-main-body > .tabbable {
+  min-height: 100%;
+  display: flex; flex-direction: column;
+}
+.dsapp-main-body > .tabbable > .tab-content {
+  flex: 1 1 auto;
+  display: flex; flex-direction: column;
+}
+/* flex:1 1 auto 且不设 min-height:0 —— 内容高时它**不许收缩**，
+   这正是上面说的第二种情况成立的原因。 */
+.dsapp-main-body > .tabbable > .tab-content > .tab-pane.active {
+  flex: 1 1 auto;
+  display: flex; flex-direction: column;
+}
+
+/* ★ V13.2 item 8：卡片被压成一条，只看得见第一行（用户报的"服务器健康
+ * 只能看到前面一行"，token 用量 / 用户 那几张卡一样）。
+ *
+ * 根因是三处**默认值**叠出来的，repo 里一条相关 CSS 都没有：
+ *   1. 上面那条让 .tab-pane.active 成了 flex 列，卡片就是它的 flex 项；
+ *   2. flex 项默认 `flex-shrink: 1` —— 允许被压小；
+ *   3. bslib 的 `.bslib-card { overflow: auto }` 让卡片的**自动最小尺寸
+ *      变成 0**（CSS 规范：overflow 不是 visible 时，`min-height: auto`
+ *      按 0 解析）。本来"内容撑不下就长高"这条兜底，正好被它抹掉了。
+ *
+ * 于是页签高度不够时，不是页签长出去、由 .dsapp-main-body 滚（那正是上面
+ * 注释里写下的本意），而是**每张卡片按比例被压扁**，卡片自己的 overflow:auto
+ * 再把它变成一个内部滚动条。实测服务器健康那张：卡高 27px，而它自己的
+ * 标题栏就有 48px，卡体 32px 装着 465px 的内容。
+ *
+ * ⚠️ 对话页要**排除**：它故意用 flex 把输入框钉在底部，卡片可收缩是它需要的
+ *    （见下面 `:has(.dsapp-chat-page)` 那段）。用 :not(:has(...)) 而不是给每张
+ *    卡加类名 —— 卡片是各个 mod_*.R 自己渲染的，漏一个就复发一个。
+ *
+ * ⚠️ 只压 `> .card` 和 `> .bslib-grid` 这两层直接孩子，**不写后代选择器**：
+ *    卡片体里还有嵌套的卡片和 layout_columns，那些是在一个已经被撑开的
+ *    高度里布局的，再给它们 flex-shrink:0 只会把内层顶出去。
+ *    （layout_columns 渲染出来是 `.bslib-layout-columns.bslib-grid`。） */
+.dsapp-main-body > .tabbable > .tab-content >
+  .tab-pane.active:not(:has(.dsapp-chat-page)) > .card,
+.dsapp-main-body > .tabbable > .tab-content >
+  .tab-pane.active:not(:has(.dsapp-chat-page)) > .bslib-grid {
+  flex-shrink: 0;
+}
+
+/* ★ V13.9 item 4：上面那条**漏了 uiOutput 包着的卡**，而文件页的
+ *   「本对话产物」正是这么来的（mod_files.R 里是 `uiOutput(ns("ws_card"))`）。
+ *
+ * 症状：管理区文件一多，整张产物卡被压成 **2 像素**（卡体 16px 装着 147px
+ *   的内容），卡片自己的 `.bslib-card{overflow:auto}` 把内容全裁掉 ——
+ *   那一行里的「预览」「下载」于是**永远点不着**，用户看到的是"这一块
+ *   没了"。实测（1600×950，管理区 3 个文件）：卡高 2px、卡体 16px/内容
+ *   147px，页签 scrollHeight 878 ≈ clientHeight 870，正好是"被压扁到刚好
+ *   塞进一屏"那个自洽的坏状态。
+ *
+ * 根因是**选择器看的是 DOM，压扁发生在盒树里**：shiny 给 uiOutput 那一层
+ *   `<div class="shiny-html-output">` 设了 `display: contents`（实测
+ *   computed display 就是 contents、rect 恒为 0），于是它**不生成盒子**，
+ *   里面的 .card 直接成了 .tab-pane 的 flex 项 —— 可它的 DOM 父节点仍然是
+ *   那个 wrapper，`> .card` 这种直接孩子选择器**匹配不上**。CSS 不会因为
+ *   "没匹配上"报任何错，表现就是"这条规则对这类卡片从来没生效过"。
+ *
+ * 两条一起写：
+ *   · wrapper 那条是给"哪天 shiny 不再用 display:contents"留的；
+ *   · 里面那条才是当前真正生效的 —— 实测补上之后卡高 2px → 193px，
+ *     页签 scrollHeight 878 → 1069，页面恢复成"内容高就由 .dsapp-main-body
+ *     滚"，「预览」点得开、弹窗正常。
+ *
+ * ⚠️ 同样只写**直接孩子**（`> .shiny-html-output > .card`）。卡体里面还有
+ *    嵌套的卡片和 uiOutput，那些是在一个已经撑开的高度里布局的，再给它们
+ *    flex-shrink:0 只会把内层顶出去 —— 和上面那条的理由完全相同。
+ * ⚠️ 老浏览器不认 :has() 时这一整块被丢掉，退化成 V13.2 之前的样子
+ *    （卡片被压扁），不是新增的风险。 */
+.dsapp-main-body > .tabbable > .tab-content >
+  .tab-pane.active:not(:has(.dsapp-chat-page)) > .shiny-html-output {
+  flex: 0 0 auto;
+}
+.dsapp-main-body > .tabbable > .tab-content >
+  .tab-pane.active:not(:has(.dsapp-chat-page)) > .shiny-html-output > .card,
+.dsapp-main-body > .tabbable > .tab-content >
+  .tab-pane.active:not(:has(.dsapp-chat-page)) > .shiny-html-output > .bslib-grid {
+  flex-shrink: 0;
+}
+
+/* ---------------------------------------------------------------------------
+ * 深色下的几处补丁
+ * ---------------------------------------------------------------------------
+ * app.css 里这些都是按浅色配的（虽然是 var()，但取值本身在浅色下才对）。
+ * 每条都写清"为什么必须动"—— 没写理由的不要加进来，那种规则半年后
+ * 没人敢删。
+ * ------------------------------------------------------------------------- */
+
+/* 页脚：浅色下用 tertiary-bg 和正文区分，深色下 tertiary-bg 已经很暗，
+   和 body 几乎一样，整条页脚会糊成背景的一部分。提亮边框代替。
+   底色同样归皮肤（www/skins.css 里按 --dsapp-rail-bg 给），这里只留边框。 */
+.dsapp-footer { border-top-color: var(--bs-border-color); }
+
+/* 等宽区域（终端输出、代码预览、恢复码）的底色**不在这里定**。
+ *
+ * V6 这里是写死的 `background: #010409` —— 那时候全站只有深色一套皮，
+ * 写死没问题。V8 加了 light / claude / apple 三套**浅色**皮之后，这个
+ * 近黑的底还在，而字色是继承来的 `--bs-body-color`（claude 下 #2b2a27）
+ * —— 于是「报错解读」和代码块变成**黑底黑字**，CSS 语法完全合法、控制台
+ * 一声不吭，只有肉眼看得见。
+ *
+ * 底色是**皮肤**的属性，所以它归 www/skins.css（走 --dsapp-code-bg）。
+ * 这里留一条注释而不是留一条规则，是因为"删掉的规则"比"从没写过的规则"
+ * 更容易被下一个人重新加回来 —— 别再往这儿加 background 了。
+ */
+
+/* 表格（DT 渲染的任务表、用户表、日志表）：DT 默认走浅色条纹，
+   深色下白底黑字非常刺眼。 */
+table.dataTable tbody tr { background-color: transparent; }
+table.dataTable.table-striped > tbody > tr:nth-of-type(odd) > * {
+  background-color: rgba(255, 255, 255, .025);
+  color: var(--bs-body-color);
+}
+table.dataTable tbody tr:hover > * { background-color: rgba(255, 255, 255, .05); }
+.dataTables_wrapper .dataTables_info,
+.dataTables_wrapper .dataTables_length,
+.dataTables_wrapper .dataTables_filter { color: var(--bs-secondary-color); }
+
+/* 分页条：Bootstrap 默认的 .page-link 是浅底深字 */
+.page-link {
+  background: var(--bs-tertiary-bg);
+  border-color: var(--bs-border-color);
+  color: var(--bs-body-color);
+}
+.page-link:hover { background: var(--bs-secondary-bg); color: var(--bs-body-color); }
+.page-item.disabled .page-link { background: var(--bs-body-bg); color: var(--bs-secondary-color); }
+
+/* 滚动条（V13.8 item 7）。
+ *
+ * ⚠️ 这里原来有一整套 `.dsapp-main-body / .dsapp-chat-scroll` 的尺寸和形状
+ *    规则（width: 10px、track 透明、thumb 圆角 5px）。已经**搬去 app.css**
+ *    那一段通配规则里了 —— 因为同一件事在四个地方各写了一遍（这里、
+ *    app.css 的 chat-scroll、下面 rail-model 那条、还有 skins.css 的颜色），
+ *    四份的宽度和颜色都对不上，表现就是"有的地方看得到滚动条、有的地方
+ *    看不出来"。现在**只有 app.css 那一处**定义，这里不再覆盖。
+ *
+ * ⚠️ `scrollbar-width: thin` 也一并去掉了：它在 Firefox 上把滚动条压窄，
+ *    而用户这一条反馈要的恰恰相反（"真正的滚动模块显示的不太明显"）。
+ *    不给就让浏览器用默认宽度，颜色由 app.css 里那条 `html[data-skin] *`
+ *    统一管。 */
+
+/* 登录页：那一套 .dsapp-auth-* 自带了浅色变量 + prefers-color-scheme 暗色
+   分支。V6 整体是深色，等系统主题来决定的话，浅色系统上会白底黑字地
+   杵在深色应用前面。直接钉成暗色那一组。 */
+.dsapp-auth {
+  --auth-bg:      #0d1117;
+  --auth-fg:      #e6edf3;
+  --auth-muted:   #8b949e;
+  --auth-border:  #30363d;
+  --auth-border-hi:#58a6ff;
+  --auth-field:   #010409;
+  --auth-btn:     #238636;
+  --auth-btn-fg:  #ffffff;
+  --auth-btn-hi:  #2ea043;
+  --auth-hover:   #161b22;
+  --auth-danger:  #f85149;
+  --auth-ok:      #3fb950;
+}
+
+/* ---------------------------------------------------------------------------
+ * 对话页的内层侧栏（会话列表）
+ * ---------------------------------------------------------------------------
+ * 左栏（全局导航 + 模型）是 V6 新加的，对话页自己又带一个 bslib sidebar
+ * 装会话列表 —— 加起来是 264 + 260 两列导航，1366 宽的屏幕上只剩 840 给
+ * 消息。所以这里把内层那一列压窄、背景压平：它降级成"主区里的一个次级
+ * 面板"，视觉上不再和左栏抢。
+ *
+ * ⚠️ 不要为了省地方把会话列表整个删掉 —— 那是"换对话"的唯一入口，
+ *    而对话是这个应用里数据的组织单位。
+ * ------------------------------------------------------------------------- */
+/* 只压平背景和分隔线。 */
+.dsapp-main-body .bslib-sidebar-layout > .sidebar {
+  background: transparent;
+  border-right: 1px solid var(--bs-border-color);
+}
+
+/* ---- V13.4 item 6：任务导航栏可以拖着改宽 --------------------------------
+ *
+ * ★★ 这一条**必须**是 `--_sidebar-width` + `!important`，两个都不能换。
+ *    2026-09-16 拿 bslib 0.9.0 实际渲染的 HTML 对过：
+ *
+ *      <div class="bslib-sidebar-layout" style="--_sidebar-width:260px;">
+ *
+ *    · bslib 写的是**私有变量 `--_sidebar-width`**（不是 --bslib-sidebar-width，
+ *      那个只是样式表里那句 `var(--bslib-sidebar-width, 250px)` 的 fallback）。
+ *    · 行内样式盖过样式表 —— 所以 `--bslib-sidebar-width: X` 这种写法**完全
+ *      不生效**，`width: X` 更不生效（列宽是 grid-template-columns 算的）。
+ *    · `!important` 的作者声明**盖得过行内声明**，这是自定义属性上唯一能赢的
+ *      写法。
+ *
+ *    ⚠️ 别再退回 `layout_sidebar(width = 260)` 那种"改参数"的路：那个值是
+ *       **渲染时定死的**，而这里要的是"用户拖出来的、跟着账号走的"。
+ *       两边的默认值都是 260，必须一致（见 uiprefs.R 的 sess_w 那条）。
+ *
+ *    ⚠️ 作用域只能是这一页。`.dsapp-main-body` 里目前**只有**对话页用了
+ *       layout_sidebar（全仓 grep 只命中 mod_chat.R 一处），但这个前缀还是要
+ *       留着 —— 哪天别的页也用了，那条规则会莫名其妙地改掉人家的栏宽。
+ */
+.dsapp-main-body .bslib-sidebar-layout {
+  --_sidebar-width: var(--dsapp-sess-w, 260px) !important;
+}
+
+/* 那条竖分隔条。
+ *
+ * ⚠️ 它和 app.css 里那两条**不是一套做法**，别照抄那边的 flex 属性：这一栏
+ *    是 bslib 的 grid 子项，中间**没有第三个格子**能插进去，只能绝对定位。
+ *    包含块靠 `grid-column: 2 / 3` 指到 main 那一列（绝对定位的 grid 子元素
+ *    若指定了 grid-placement，包含块就是那个网格区）—— 于是 `left: 0` 正好
+ *    落在 sidebar 和 main 的分界线上。
+ *
+ * ⚠️ 整条把手放在**主区一侧**，不跨越分界线。跨过去的那一半会没：父级
+ *    `.bslib-sidebar-layout > .sidebar` 是 `overflow: auto` 的，而 main 也是。
+ *    这也是它不能像 .dsapp-split-h 那样"探进邻居 3px"的原因。
+ *
+ * ⚠️ 可点区域是整条 14px（和另外两条"太细拖不准"是同一个考虑），但**看得见
+ *    的部分只有贴边那 8px**：一条 2px 的常驻边界线（::before）+ 一个 6px 宽
+ *    的圆角把手（::after）。两者都画在这条线所在的边上，所以看起来就长在
+ *    分界线里。
+ *
+ * ★ V13.7 item 1：原来这里是"常驻全透明、只在 hover 时显一条 3px 的色带"，
+ *   用户的原话是「可拉动调整界面大小的地方都太不明显了」。改成和 app.css
+ *   那两条同一套做法（常驻线 + 把手，hover/聚焦/拖动变主色）。改的时候
+ *   两边要一起改 —— 五条把手看起来必须是同一种东西。 */
+.dsapp-sess-handle {
+  position: absolute;
+  grid-column: 2 / 3;
+  grid-row: 1 / 2;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 14px;
+  z-index: 30;              /* 高过 .dsapp-split-h 的 3，别被它压住 */
+  cursor: col-resize;
+  background: transparent;
+  touch-action: none;
+}
+/* 常驻边界线。
+ * ⚠️ 位置就是**分界线本身**（left: 0 是包含块的左边缘，见上面那段说明），
+ *    所以这条线正好落在 sidebar 和 main 中间，不会跑到任何一栏的内容上。 */
+.dsapp-sess-handle::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 2px;
+  background: var(--bs-border-color);
+  pointer-events: none;
+  transition: background-color .12s ease;
+}
+/* 常驻把手。⚠️ 同样贴边（left: 0）—— 居中到 14px 的中间会离那条线 4px，
+   看起来是个浮在正文上的小方块，而不是"长在这条缝里的抓手"。
+ *
+ * ★ V13.8 item 7：圆点抓手，做法和 app.css 的 .dsapp-split-v::after 一字
+ *   不差（那边有完整说明）。三个点竖排、点距 14px、总高 42px。
+ *   ⚠️ 五条把手**必须**长得一样，改这里就回去改那边。 */
+.dsapp-sess-handle::after {
+  content: "";
+  position: absolute;
+  left: 0; top: 50%;
+  width: 6px; height: 42px;
+  margin-top: -21px;
+  color: var(--bs-secondary-color, #9aa4b2);
+  background-image: radial-gradient(circle, currentColor 1.7px, transparent 1.8px);
+  background-size: 100% 14px;
+  background-position: center top;
+  background-repeat: repeat-y;
+  opacity: .9;
+  pointer-events: none;
+  transition: color .12s ease, opacity .12s ease;
+}
+.dsapp-sess-handle:hover::before,
+.dsapp-sess-handle:focus-visible::before,
+.dsapp-sess-handle.dsapp-split-on::before {
+  background: var(--bs-primary);
+}
+/* ⚠️ 改 `color` 不是 `background`：圆点是 background-image + currentColor，
+    background 简写会把 background-image 重置成 none（点会当场消失）。 */
+.dsapp-sess-handle:hover::after,
+.dsapp-sess-handle:focus-visible::after,
+.dsapp-sess-handle.dsapp-split-on::after {
+  color: var(--bs-primary);
+  opacity: 1;
+}
+.dsapp-sess-handle.dsapp-split-on::after {
+  box-shadow: 0 0 0 3px var(--bs-primary-bg-subtle, rgba(13, 110, 253, .18));
+}
+/* 键盘用户得看得见焦点在哪。分隔条本身没有可见的内容，不画这一圈的话
+   Tab 到它身上时页面上没有任何变化。 */
+.dsapp-sess-handle:focus-visible {
+  outline: 2px solid var(--bs-primary);
+  outline-offset: -2px;
+}
+
+/* ---- 主菜单那条分隔条（V13.5 item 8）-------------------------------------
+ *
+ * `.dsapp-shell` 是**两列**的 grid（主菜单 | 主区），中间没有第三个格子 ——
+ * 往里面直接塞一个把手会凭空多出一列，把主区挤到第三列去。所以和
+ * .dsapp-sess-handle 一样走绝对定位：`grid-column: 1 / 2` 把**包含块**指到
+ * 主菜单那一列的网格区，再 `right: 0` 贴住它的右边缘 —— 也就是主菜单和
+ * 主区之间那条线。
+ *
+ * ⚠️ 别改成"放进 .dsapp-rail 里、然后 right: -7px 探出去"：那一栏是
+ *    `overflow: auto` 的，探出去的一半会被裁掉，剩下的一半正好压住它自己的
+ *    滚动条 —— 整条把手只有看得见的那半能点，而且点下去先滚的是菜单。
+ *
+ * ⚠️ 可点区域是整条 14px（和另外三条"太细拖不准"是同一个考虑），看得见的
+ *    部分只有贴边那 8px：2px 常驻线 + 6px 把手。做法和 .dsapp-sess-handle
+ *    一字不差，只是贴的是**右**边（这一栏在分界线的左边）。
+ *    ★ V13.7 item 1 改成常驻可见，理由见上面 sess 那条。 */
+.dsapp-rail-handle {
+  position: absolute;
+  grid-column: 1 / 2;
+  grid-row: 1 / 2;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 14px;
+  z-index: 30;              /* 和 sess 那条同层，别被主区的内容压住 */
+  cursor: col-resize;
+  background: transparent;
+  touch-action: none;
+}
+.dsapp-rail-handle::before {
+  content: "";
+  position: absolute;
+  right: 0; top: 0; bottom: 0;
+  width: 2px;
+  background: var(--bs-border-color);
+  pointer-events: none;
+  transition: background-color .12s ease;
+}
+/* 圆点抓手，同 .dsapp-sess-handle（V13.8 item 7）。 */
+.dsapp-rail-handle::after {
+  content: "";
+  position: absolute;
+  right: 0; top: 50%;
+  width: 6px; height: 42px;
+  margin-top: -21px;
+  color: var(--bs-secondary-color, #9aa4b2);
+  background-image: radial-gradient(circle, currentColor 1.7px, transparent 1.8px);
+  background-size: 100% 14px;
+  background-position: center top;
+  background-repeat: repeat-y;
+  opacity: .9;
+  pointer-events: none;
+  transition: color .12s ease, opacity .12s ease;
+}
+.dsapp-rail-handle:hover::before,
+.dsapp-rail-handle:focus-visible::before,
+.dsapp-rail-handle.dsapp-split-on::before {
+  background: var(--bs-primary);
+}
+/* ⚠️ 同样是 `color`，不是 `background` —— 理由见上面 sess 那条。 */
+.dsapp-rail-handle:hover::after,
+.dsapp-rail-handle:focus-visible::after,
+.dsapp-rail-handle.dsapp-split-on::after {
+  color: var(--bs-primary);
+  opacity: 1;
+}
+.dsapp-rail-handle.dsapp-split-on::after {
+  box-shadow: 0 0 0 3px var(--bs-primary-bg-subtle, rgba(13, 110, 253, .18));
+}
+.dsapp-rail-handle:focus-visible {
+  outline: 2px solid var(--bs-primary);
+  outline-offset: -2px;
+}
+
+/* 对话页整体填满页签：消息区自己滚，输入框钉在底部 */
+.dsapp-main-body .tab-pane.active > .bslib-sidebar-layout {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* ★ V12 item 1：把对话页那一支的高度**从"内容决定"改成"容器决定"**。
+ *
+ *   上面那条只让 layout 能收缩，不够用 —— 实测下来整页仍然比一屏高 56px：
+ *   高度是这么循环的
+ *       .tabbable 高度 = max(100%, 内容)  →  内容 = 页签高度
+ *       →  页签高度 = 内容  →  内容 = .main 高度  →  .main 高度 = 内容 …
+ *   环里每一层都是"看内容"，于是百分比高度一律退化成 auto（CSS 规范里
+ *   百分比撞上环就是这么处理的），消息区因此永远撑到内容那么高。
+ *
+ *   这里把链上三层的 min-height 归零、并给 .tabbable 一个确定的高度，
+ *   环就断开了：820 这个数一层层传下去，消息区拿到的是**分剩下的**高度。
+ *
+ * ⚠️ 为什么要 :has() —— .tabbable / .tab-pane 是**所有页共用**的。
+ *    上面那条 "min-height 不许归零"（见 .tab-pane.active 那一段）是给设置页、
+ *    任务表定的：它们内容高，要由 .dsapp-main-body 滚，所以页签必须能长出去。
+ *    对话页正好相反 —— 它自己要吃掉一屏。两者只能靠"页签里装的是谁"区分，
+ *    而 CSS 里看"里面装的是谁"只有 :has() 一条路。
+ * ⚠️ 老浏览器不认 :has() 时这几条整条被丢掉，退化成 V11 的样子（整页能滚、
+ *    页脚压住最下面那排控件）。难看，但不会坏，也不会算错。
+ *    tests/ui_v12/layout.py 有一条断言专门钉住"整页不出现滚动条"，
+ *    换浏览器跑绿了就说明这条生效了。 */
+.dsapp-main-body > .tabbable:has(.dsapp-chat-page) {
+  height: 100%;
+  min-height: 0;
+}
+.dsapp-main-body > .tabbable:has(.dsapp-chat-page) > .tab-content,
+.dsapp-main-body > .tabbable:has(.dsapp-chat-page) > .tab-content > .tab-pane.active {
+  min-height: 0;
+}
+
+/* 窄屏：左栏折成顶部一条横排，模型区不再常驻（那会占掉半屏）。
+   这一条只是"别把手机用户挡在门外"，主力场景仍然是桌面。 */
+@media (max-width: 991.98px) {
+  .dsapp-shell {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    height: auto;
+    min-height: calc(100vh - var(--dsapp-footer-h, 2.6rem));
+    overflow: visible;
+  }
+  .dsapp-rail { overflow: visible; }
+  .dsapp-rail-nav { flex-direction: row; flex-wrap: wrap; }
+  /* V13.12 item 19：模型服务那一格搬走之后，窄屏下要限高的就是导航条本身
+     （它在这一档变成横向 wrap 的一排，条目多了会撑得很高）。 */
+  .dsapp-rail-nav { max-height: 60vh; }
+  .dsapp-main-body { overflow: visible; }
+  /* 窄屏下主区不再是一个定高容器（上面 .dsapp-shell 的 height 已经放开），
+     min-height:100% 于是失去参照物。这里显式归零，把"撑满视口"这件事
+     交还给内容自身的高度。
+     ⚠️ 选择器必须和上面那条撑满规则**同一个**（带 .tabbable）。这条原来
+        写的是 `.dsapp-main-body > .tab-content` —— 和当初那条撑满规则一样
+        漏了 bslib 插进来的 .tabbable 那层，一条都不匹配。CSS 不报错，
+        表现只是"这条规则从来没生效过"，所以谁也没发现。 */
+  .dsapp-main-body > .tabbable { min-height: 0; }
+}
+
+/* ===========================================================================
+ * 本对话产物：按任务分组的折叠列表（V7 item 7 / 10）
+ * ===========================================================================
+ * 用户的原话：「文件请按任务分类」「文件需要以任务名称分类展开，并可以
+ * 选择父目录一键打包下载」。
+ *
+ * 用原生 <details>/<summary>：展开收起、键盘操作、无障碍全是浏览器管
+ * 的，不需要一行 JS。这里只负责长相。
+ *
+ * ⚠️ summary 里有一个「打包下载」链接，点它**不能**连带展开/收起这一组。
+ *    浏览器的默认行为是"点 summary 里的任何地方都切换展开"，靠 CSS 挡不
+ *    住 —— 由 app.js 那边的 onclick 里一句 stopPropagation 解决（见
+ *    mod_files.R 的 ws_act_link）。如果你以后往 summary 里加按钮，
+ *    记得照做。
+ * ------------------------------------------------------------------------- */
+.dsapp-hidden-dl { display: none; }
+
+.dsapp-wsgroup {
+  border: 1px solid var(--bs-border-color);
+  border-radius: 6px;
+  margin-bottom: .5rem;
+  overflow: hidden;
+}
+.dsapp-wsgroup > summary.dsapp-wsgroup-sum {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .45rem .6rem;
+  background: var(--bs-tertiary-bg);
+  user-select: none;
+}
+.dsapp-wsgroup > summary.dsapp-wsgroup-sum::-webkit-details-marker { display: none; }
+.dsapp-wsgroup > summary.dsapp-wsgroup-sum:hover { background: var(--bs-secondary-bg); }
+.dsapp-wsgroup > summary.dsapp-wsgroup-sum:focus-visible {
+  outline: 2px solid var(--bs-primary);
+  outline-offset: -2px;
+}
+.dsapp-wsgroup > summary.dsapp-wsgroup-sum::before {
+  content: "\25B8";            /* ▸ */
+  font-size: .7rem;
+  line-height: 1;
+  opacity: .7;
+  transition: transform .15s ease;
+  flex: none;
+}
+.dsapp-wsgroup[open] > summary.dsapp-wsgroup-sum::before { transform: rotate(90deg); }
+
+.dsapp-wsgroup-title {
+  display: flex; align-items: center; gap: .4rem;
+  min-width: 0;                 /* 让里面的省略号真的起作用 */
+  flex: 1 1 auto;
+}
+.dsapp-wsgroup-title > b {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-weight: 600;
+}
+.dsapp-wsgroup-meta {
+  color: var(--bs-secondary-color);
+  font-size: .78rem;
+  white-space: nowrap;
+  flex: none;
+}
+.dsapp-wsgroup-zip {
+  flex: none;
+  font-size: .78rem;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.dsapp-wsgroup-body { border-top: 1px solid var(--bs-border-color); }
+
+/* 一行产物 */
+.dsapp-wsrow {
+  display: flex; align-items: center; gap: .5rem;
+  padding: .3rem .6rem .3rem 1.4rem;
+  font-size: .84rem;
+}
+.dsapp-wsrow + .dsapp-wsrow { border-top: 1px solid var(--bs-border-color-translucent); }
+.dsapp-wsrow:hover { background: var(--bs-tertiary-bg); }
+.dsapp-wsrow-name {
+  flex: 1 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--bs-font-monospace, monospace);
+  font-size: .8rem;
+}
+.dsapp-wsrow-size, .dsapp-wsrow-time {
+  flex: none; color: var(--bs-secondary-color); font-size: .76rem;
+  white-space: nowrap;
+}
+.dsapp-wsrow-act { flex: none; display: flex; gap: .6rem; }
+.dsapp-wsrow-a {
+  font-size: .78rem; text-decoration: none; white-space: nowrap;
+}
+.dsapp-wsrow-a:hover { text-decoration: underline; }
+
+/* 「已发布 / 仅本对话」小标签 */
+.dsapp-pill {
+  flex: none;
+  font-size: .7rem; line-height: 1.3;
+  padding: .05rem .4rem;
+  border-radius: 999px;
+  border: 1px solid var(--bs-border-color);
+  background: var(--bs-secondary-bg);
+  color: var(--bs-secondary-color);
+  white-space: nowrap;
+}
+.dsapp-pill-on {
+  background: rgba(25, 135, 84, .12);
+  border-color: rgba(25, 135, 84, .35);
+  color: #198754;
+}
+
+/* ---- DT 表头「全选」方框（www/app.js 的 dsappSelectAll 塞进来的）---------- */
+/* Select 1.7.0 只给表头 <th> 加类名、不画东西，所以这个 input 是我们自己
+ * 放进去的，浏览器默认样式就够用 —— 这里只补对齐和手型。 */
+table.dataTable thead th.select-checkbox { cursor: pointer; }
+table.dataTable thead th.select-checkbox input.dsapp-selall {
+  cursor: pointer;
+  margin: 0;
+  vertical-align: middle;
+}
+
+/* ---- V8 item 5 / 7：目录行、互相跳转的高亮 ------------------------------- */
+
+/* 目录名不排等宽字体：等宽是为了让文件名里的数字/下划线对齐（`01_alpha.csv`
+ * 这类），而文件夹名排等宽只是显得更挤。加粗一点，让它在文件堆里跳出来。 */
+.dsapp-wsrow-dir .dsapp-wsrow-name { font-family: inherit; font-weight: 600; }
+.dsapp-wsrow-dir { background: var(--bs-tertiary-bg); }
+.dsapp-wsrow-dir:hover { background: var(--bs-secondary-bg); }
+
+/* 从任务页跳过来时被点名的那一行。闪两下再留一层淡底 —— 只闪不留底的话，
+ * 动画结束后用户回头再找就找不到了（"刚才亮的是哪一行来着"）。 */
+@keyframes dsapp-flash-kf {
+  0%, 100% { background: transparent; }
+  25%, 75% { background: var(--dsapp-flash-bg, rgba(88, 166, 255, .28)); }
+}
+.dsapp-flash { animation: dsapp-flash-kf .8s ease 3; border-radius: 6px; }
+.dsapp-wsrow-hit {
+  background: var(--dsapp-flash-bg, rgba(88, 166, 255, .28));
+  box-shadow: inset 3px 0 0 0 var(--bs-primary);
+}
+
+/* 分组标题上的「任务 #N →」。它是这一组的产物回到那条任务的唯一入口。 */
+.dsapp-wsgroup-task {
+  flex: none;
+  font-size: .78rem;
+  text-decoration: none;
+  white-space: nowrap;
+  padding: .05rem .4rem;
+  border: 1px solid var(--bs-border-color);
+  border-radius: 999px;
+  background: var(--bs-body-bg);
+}
+.dsapp-wsgroup-task:hover { text-decoration: none; border-color: var(--bs-primary); }
+
+/* 「正在看别的对话的工作区」提示条。必须显眼 —— 这一页默认显示的是当前
+ * 对话的产物，显示成别人的时候界面上没有任何其他线索。 */
+.dsapp-focusbar {
+  display: flex; align-items: center; gap: .4rem; flex-wrap: wrap;
+  background: var(--dsapp-flash-bg, rgba(88, 166, 255, .18));
+  border: 1px solid var(--bs-primary);
+  border-radius: 6px;
+  padding: .35rem .6rem;
+  margin-bottom: .5rem;
+  font-size: .82rem;
+}
+.dsapp-focusbar-back { margin-left: auto; font-size: .8rem; }
+
+/* 切对话的那个下拉框（V9 item 5）。
+ *
+ * 原生 <select> 而不是 Bootstrap 的 .form-select：那个类会把它撑成整行宽，
+ * 而这里它是卡片标题栏里的一个小组件。尺寸压到和旁边那行小字一样高，
+ * 免得标题栏被它顶高一行。
+ *
+ * ⚠️ 颜色一律用 --bs-* 变量。原生 select 的**下拉列表**（展开之后那部分）
+ *    由操作系统画，不受这里的 CSS 管 —— 这一点没法绕开，所以背景色跟着
+ *    --bs-body-bg 走，至少和页面是一个色系，展开时不会闪出一块系统灰。 */
+.dsapp-convpick {
+  max-width: 15rem;
+  font-size: .78rem;
+  padding: .1rem 1.4rem .1rem .4rem;
+  color: var(--bs-body-color);
+  background-color: var(--bs-body-bg);
+  border: 1px solid var(--bs-border-color);
+  border-radius: 6px;
+  /* 自绘箭头：默认那个三角在小尺寸下会被裁掉一半 */
+  appearance: none; -webkit-appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+                    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 12px) 50%, calc(100% - 8px) 50%;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+}
+.dsapp-convpick:hover { border-color: var(--bs-primary); }
+
+/* 任务详情里的产物行（V8 item 5）。比文件页那套更紧凑 —— 这一栏只有半屏宽。 */
+.dsapp-taskarts { border: 1px solid var(--bs-border-color); border-radius: 6px; }
+.dsapp-taskart {
+  display: flex; align-items: center; gap: .5rem;
+  padding: .25rem .5rem;
+  font-size: .84rem;
+}
+.dsapp-taskart + .dsapp-taskart { border-top: 1px solid var(--bs-border-color-translucent); }
+.dsapp-taskart:hover { background: var(--bs-tertiary-bg); }
+.dsapp-taskart-name {
+  flex: 1 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--bs-font-monospace, monospace);
+  font-size: .8rem;
+}
+.dsapp-taskart-dir .dsapp-taskart-name { font-family: inherit; font-weight: 600; }
+.dsapp-taskart-size { flex: none; white-space: nowrap; }
+.dsapp-taskart > .dsapp-wsrow-a { flex: none; }
+
+/* ★ V13.4 item 5a：产物名现在是个 <a>（点一下弹预览）。它得**看着还是一个
+ * 文件名**，不能变成一条蓝色下划线链接 —— 这一列是路径，长度参差，颜色一
+ * 变整块就花了，而且这一栏里已经有一个明确的动作链接（「去文件区看」），
+ * 两个都蓝就等于没有主次。伪链接的常规做法：颜色继承、平时无下划线，
+ * 悬停时再给下划线说明"这个可以点"。 */
+a.dsapp-taskart-name { color: inherit; text-decoration: none; }
+a.dsapp-taskart-name:hover,
+a.dsapp-taskart-name:focus {
+  color: var(--bs-link-color);
+  text-decoration: underline;
+}
+
+/* 表格预览的**静态**版（任务页弹窗）。文件页那张是 DT，自己带横向滚动；
+ * 这张是裸 <table>，一个几万列的矩阵能把弹窗撑到天上去，所以给它一个
+ * 能滚的壳。表头 sticky：往下翻的时候还得知道哪一列是什么。 */
+.dsapp-preview-tablewrap { max-height: 62vh; overflow: auto; }
+.dsapp-preview-tablewrap th {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--bs-body-bg);
+}
+
+/* ---- 文献速递页（V13.11 item 5）----------------------------------------- */
+
+.dsapp-lit-field { margin-bottom: .7rem; }
+.dsapp-lit-field .control-label {
+  display: block;
+  font-size: .82rem;
+  margin-bottom: .2rem;
+}
+
+/* 一组并排的小字段（精读 / 略读 / 年份）。挤不下就换行 —— 窄屏上
+ * 三个 number 输入并排会各自缩到看不清数字。 */
+.dsapp-lit-row {
+  display: flex;
+  gap: .8rem;
+  flex-wrap: wrap;
+}
+.dsapp-lit-row > .dsapp-lit-field { flex: 1 1 9rem; min-width: 8rem; }
+
+/* 年份那两个框中间的连接号。给一点上下留白，让它和输入框的中线对齐 */
+.dsapp-lit-years { display: flex; align-items: center; gap: .35rem; }
+.dsapp-lit-dash { color: var(--bs-secondary-color); }
+
+.dsapp-lit-hint {
+  font-size: .78rem;
+  color: var(--bs-secondary-color);
+  line-height: 1.5;
+  margin-top: .3rem;
+}
+.dsapp-lit-hint code {
+  font-size: .95em;
+  padding: 0 .2em;
+}
+
+/* 切出来的关键词回显。存在的意义是**让用户当场看出切错了**：
+ * 比如他以为 "single cell RNA" 是一个词，实际被切成了三个。 */
+.dsapp-lit-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .3rem;
+  align-items: center;
+  margin: .1rem 0 .8rem;
+}
+.dsapp-lit-chip {
+  font-size: .76rem;
+  padding: .1rem .45rem;
+  border-radius: 999px;
+  background: var(--bs-tertiary-bg);
+  border: 1px solid var(--bs-border-color);
+}
+.dsapp-lit-chipcount {
+  font-size: .74rem;
+  color: var(--bs-secondary-color);
+  margin-left: .2rem;
+}
+
+/* 技能勾选。checkboxGroupInput 默认是竖排的，间距收紧一点 */
+.dsapp-lit-sums { margin-top: .5rem; }
+.dsapp-lit-sum {
+  display: flex;
+  gap: .5rem;
+  font-size: .78rem;
+  line-height: 1.5;
+  padding: .15rem 0;
+}
+.dsapp-lit-sum-name {
+  flex: 0 0 auto;
+  font-weight: 600;
+  color: var(--bs-body-color);
+}
+.dsapp-lit-sum-txt { color: var(--bs-secondary-color); }
+
+.dsapp-lit-actions {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  flex-wrap: wrap;
+}
+
+/* 两个子页面（关键词检索 / 学术前沿订阅，V15.5 item 5）。
+ * radioButtons 默认会带上 .shiny-input-container 的 margin-bottom，
+ * 卡片底下会多出一段空白，压掉。 */
+.dsapp-lit-modes { margin-top: .6rem; }
+.dsapp-lit-modes .shiny-input-container { margin-bottom: 0; }
+.dsapp-lit-modes .radio-inline { margin-right: 1rem; }
+
+/* 「学术前沿」那组预设。给它一点底色和左边框 —— 它填的是**下面**那些框，
+ * 视觉上要和"用户自己填的条件"区分开，否则看起来像又一套并列的输入。 */
+.dsapp-lit-frontier {
+  border-left: 3px solid var(--bs-primary);
+  background: var(--bs-tertiary-bg);
+  border-radius: .3rem;
+  padding: .6rem .7rem;
+  margin-bottom: .9rem;
+}
+
+/* 「单独填一套」那块条件（V15.5 item 4）。同上，和下面对齐的字段区分开。 */
+.dsapp-lit-own {
+  border-left: 3px solid var(--bs-border-color);
+  padding: .2rem 0 .2rem .7rem;
+  margin-bottom: .6rem;
+}
+
+/* 定时订阅那张卡展开时才有 .dsapp-lit-subopen（V15.5 item 4）。
+ * 「定时订阅」按钮的 dsapp:flash 找的就是它 —— 用一个**只在展开时存在**
+ * 的选择器，才不会滚到一个还没渲染出来的空外壳上。这里不需要额外样式，
+ * 有这个名字就够；留着这条注释是防止有人当它是死类名删掉。 */
+
+/* 技能勾选是 16 条内置技能，竖着排会一路把「开始检索」顶到屏幕外。
+ * 给它自己的滚动区，一屏内能同时看见条件、技能、按钮。
+ * ⚠️ 滚动的是 checkboxGroupInput 生成的那个 div（shiny 会带上
+ *    .shiny-input-container 和 .form-group），不是外面这层。 */
+.dsapp-lit-skills {
+  max-height: 10.5rem;
+  overflow-y: auto;
+  padding-right: .2rem;
+}
+
+/* 「告诉 AI 注意事项」的预设勾选（V13.12 item 18）。
+ * 和上面技能那块不同：这里的标签是**整句话**（"不要综述，只要原始研究"），
+ * 默认的 inline 排版会把它顶到 checkbox 右边一路伸出去，窄屏上折行也
+ * 折得很难看 —— 所以 label 走 flex，文字部分允许换行。
+ * 高度同样封顶：5 条整句竖排加上下面那个输入框，正好把「开始检索」
+ * 挤出屏幕。 */
+.dsapp-lit-notes {
+  max-height: 9rem;
+  overflow-y: auto;
+  padding-right: .2rem;
+  margin-bottom: .4rem;
+}
+.dsapp-lit-notes .checkbox { margin-top: .15rem; margin-bottom: .15rem; }
+.dsapp-lit-notes .checkbox label {
+  display: flex;
+  align-items: flex-start;
+  gap: .4rem;
+  line-height: 1.35;
+}
+.dsapp-lit-notes .checkbox input { margin-top: .2rem; flex: 0 0 auto; }

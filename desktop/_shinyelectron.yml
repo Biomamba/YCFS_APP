@@ -1,0 +1,40 @@
+# =============================================================================
+# shinyelectron 打包配置（V13.2 item 1 的"方案 B"）
+# =============================================================================
+# shinyelectron 会在**应用目录**里找这个名字的文件（CONFIG_FILENAME =
+# "_shinyelectron.yml"，见 R 包里 find_config()）。desktop/build_exe.R 会把它
+# 连同改写过的 icon 路径一起复制进临时副本。
+#
+# ⚠️ 这个文件在仓库里**放在 desktop/ 而不是仓库根目录**，是有意的：如果放在
+#    根目录，别人在仓库上直接跑 `shinyelectron::export(".")` 就会把开发库
+#    （data/dsapp.sqlite3、密钥、所有人的工作区）一起打进安装包。放在这里 +
+#    build_exe.R 只往临时副本里放清单里的文件，两道保险。
+#
+# 字段含义见 https://r-pkg.thecoatlessprofessor.com/shinyelectron/
+# =============================================================================
+
+app:
+  # 显示名。窗口标题由应用自己渲染（见 app.R），这里只影响安装包描述。
+  name: "DS_App"
+  # 版本号由 build_exe.R 从 R/config.R 读，这里写一份是给直接调 export() 用的。
+  # ⚠️ 改了 R/config.R 的 DSAPP_VERSION 记得同步这一行。
+  version: "13.2.0"
+
+build:
+  # r-shiny / py-shiny。本应用是 R 的。
+  type: "r-shiny"
+  # ⚠️⚠️ 必须是 bundled，不能是默认的 shinylive。
+  #     shinylive 是把 R 编译成 WebAssembly 在浏览器里跑 —— 这个应用要读写
+  #     文件系统、要起子进程跑 R/Python 任务、要连 ssh，WASM 里一样都做不到。
+  #     设错的症状很隐蔽：包能打开、界面能看见，一用就废。
+  #     bundled = 把便携版 R 和依赖包一起塞进包里，用户机器上不用装 R。
+  runtime_strategy: "bundled"
+
+# Windows 用 .ico（多档尺寸，见 desktop/app.ico）。
+# mac 要 .icns、linux 要 .png —— 都不在这台机器上打，所以没准备。
+icon: "desktop/app.ico"
+
+# 不签名。没有代码签名证书时 Windows 会弹"未知发布者"，杀毒软件也可能拦。
+# 买了证书之后在 build_exe.R 里传 sign = TRUE，并在这里补 signing 段。
+signing:
+  sign: false

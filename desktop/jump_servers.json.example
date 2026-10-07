@@ -1,0 +1,34 @@
+{
+  "_说明": [
+    "这是「信息同步跳板」的**出厂清单**：打包时把本文件改名为 jump_servers.json",
+    "放在 desktop/ 目录下，构建脚本会把它放进发行包的 desktop/jump_servers.json。",
+    "用户第一次启动时，应用把它种进本机的 sync_servers 表；之后用户可以自己改。",
+    "",
+    "只种一次：表里已经有条目就什么都不做 —— 用户删掉一条之后，",
+    "不该下次启动又被推回来。所以改了这个文件重新发一版，只对新装的机器生效。",
+    "",
+    "格式：[{name, host, port, remote_dir, note}]",
+    "  name       显示在设置页下拉里的名字（同一份清单里不能重名）",
+    "  host       跳板服务器的 IP 或域名（客户端要能 ssh 上去）",
+    "  port       SSH 端口，默认 22",
+    "  remote_dir 那台服务器上 YCFS_APP 的 data 目录下的 sync 子目录，",
+    "             也就是它的 .Renviron 里 DSAPP_DATA_ROOT 后面加 /sync。",
+    "             留空 = 用内置默认值 /srv/shiny-server/YCFS_APP/data/sync",
+    "  note       备注，随便写",
+    "",
+    "⚠️ 这里**只放地址**。SSH 用户名和密码永远由用户自己在设置页填，",
+    "   不写库、不落盘、不过网（R/nodes.R 顶上那条策略）。",
+    "   往这个文件里塞凭据 = 把所有人的密码写进一个随包分发的明文文件。",
+    "",
+    "这个 .example 文件**不会**被打包（脚本只认 jump_servers.json）。"
+  ],
+  "servers": [
+    {
+      "name": "官方中转",
+      "host": "把这里换成服务器的域名或 IP",
+      "port": 22,
+      "remote_dir": "/srv/shiny-server/YCFS_APP/data/sync",
+      "note": "发行版默认连这里"
+    }
+  ]
+}

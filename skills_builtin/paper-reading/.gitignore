@@ -1,0 +1,11 @@
+# API Key - 绝不可上传到 git
+api_key/
+*.key
+key.txt
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Paper reading output (generated at workspace root)
+paper_reading/

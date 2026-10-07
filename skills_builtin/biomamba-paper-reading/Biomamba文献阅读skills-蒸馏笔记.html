@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Biomamba文献阅读skills · 结构化蒸馏笔记</title>
+<style>
+  :root{
+    --bg:#f7f8fa; --card:#ffffff; --ink:#1f2430; --muted:#5b6472;
+    --accent:#1a6fb5; --accent2:#0e8f6f; --line:#e4e8ee; --soft:#eef4fa;
+    --warn:#b3541a; --warnbg:#fdf3ec;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif; background:var(--bg); color:var(--ink); line-height:1.75; padding:32px 16px;}
+  .wrap{max-width:980px; margin:0 auto;}
+  header.hero{background:linear-gradient(135deg,#123c63,#1a6fb5 60%,#0e8f6f); color:#fff; border-radius:16px; padding:36px; margin-bottom:26px;}
+  header.hero h1{font-size:26px; margin-bottom:10px;}
+  header.hero p{opacity:.92; font-size:14px; max-width:800px;}
+  .meta{display:flex; flex-wrap:wrap; gap:10px; margin-top:16px;}
+  .meta span{background:rgba(255,255,255,.16); border:1px solid rgba(255,255,255,.3); border-radius:20px; padding:4px 14px; font-size:12.5px;}
+  h2{font-size:18px; margin:26px 0 10px; padding-left:12px; border-left:4px solid var(--accent); color:var(--accent);}
+  h3{font-size:15px; margin:16px 0 8px; color:#153a5c;}
+  .card{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:20px 22px; margin-bottom:14px;}
+  .paper{border:1px solid var(--line); border-radius:14px; background:var(--card); margin:30px 0; overflow:hidden;}
+  .paper-head{background:var(--soft); padding:16px 22px; border-bottom:1px solid var(--line);}
+  .paper-head b{font-size:16.5px; color:#123c63;}
+  .paper-head small{display:block; color:var(--muted); margin-top:2px;}
+  .paper-body{padding:6px 22px 20px;}
+  table{width:100%; border-collapse:collapse; font-size:13.5px; margin:10px 0;}
+  th{background:var(--soft); color:#153a5c; text-align:left;}
+  th,td{border:1px solid var(--line); padding:7px 10px; vertical-align:top;}
+  ul,ol{padding-left:22px;}
+  li{margin:3px 0;}
+  .kv{display:grid; grid-template-columns:110px 1fr; gap:4px 14px; font-size:13.5px; margin:6px 0;}
+  .kv dt{color:var(--muted);}
+  .kv dd{margin:0;}
+  .tag{display:inline-block; background:var(--soft); color:var(--accent); border-radius:6px; padding:1px 8px; font-size:12px; margin:2px 4px 2px 0;}
+  .tag.g{background:#e6f6f0; color:var(--accent2);}
+  .quote{background:var(--warnbg); border-left:3px solid var(--warn); border-radius:0 8px 8px 0; padding:10px 14px; margin:10px 0; font-size:13.5px;}
+  .quote b{color:var(--warn);}
+  .na{color:#98a2b3; font-style:italic;}
+  .tmpl{border:1.5px dashed var(--accent); border-radius:12px; padding:18px 22px; background:#fbfdff;}
+  .flow{background:#f4f8fc; border:1px solid var(--line); border-radius:10px; padding:12px 16px; font-size:13.5px; margin:8px 0;}
+  footer{margin-top:40px; color:var(--muted); font-size:12px; text-align:center; border-top:1px solid var(--line); padding-top:16px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>Biomamba文献阅读skills · 结构化蒸馏笔记</h1>
+  <p>以 Biomamba 生信基地公众号「文献阅读/代码复现」系列推送为输入源，按统一的 8 模块框架蒸馏高分文献，沉淀为可复用的方法学笔记库，服务于文献整理与课题设计。本期蒸馏 4 篇推送代表作（已核实元信息与数据编号）。</p>
+  <div class="meta">
+    <span>📚 本期 4 篇：NC 2021 / Nature 2022 / Cell 2024 / Cancer Cell 2024</span>
+    <span>🧬 覆盖：scRNA-seq · scTCR-seq · 空间组学 · 泛癌整合</span>
+    <span>🔁 用途：文献整理 / 课题设计 / 方法学复现参考</span>
+  </div>
+</header>
+
+<h2>〇、使用说明与复用模板</h2>
+<div class="card tmpl">
+  <p style="font-size:13.5px;color:var(--muted);">将以下骨架复制为新笔记，逐模块填充即可。约定：原文未给出的参数统一标注「<span class="na">原文未披露</span>」；作者原话/编者按用【作者观点】单独标注。</p>
+  <ol style="font-size:13.5px;margin-top:8px;">
+    <li><b>文献元信息</b>：标题（<b>中英同格</b>：<code>英文原题（中文译名）</code>，中文栏必须是中文，不许回填英文原文、不许写「（我们译）」这类标注）/ 期刊 / IF / 时间 / DOI / 单位 / 一句话结论（≤50字）</li>
+    <li><b>科学问题与创新点</b>：痛点 + 3 个创新点（方法学/生物学发现/数据集）+ 转化价值</li>
+    <li><b>实验设计与队列</b>：样本类型/物种/数量、组学技术清单、对照设置逻辑</li>
+    <li><b>核心分析流程</b>：原始数据→结论的完整管线；每步工具+版本；关键 QC 阈值；注释策略</li>
+    <li><b>关键结果与图表解读</b>：Figure 逐张解读（问题/统计方法/结论/图型）</li>
+    <li><b>数据与代码资源</b>：GEO/SRA 编号、GitHub、补充材料入口</li>
+    <li><b>对我们工作的可借鉴点</b>：可迁移方法 / 踩坑细节 / 适合引用章节</li>
+    <li><b>待深入学习/延伸阅读</b>：关键参考文献 3-5 篇 + 后续追踪点</li>
+  </ol>
+</div>
+
+<!-- ==================== PAPER 1 ==================== -->
+<div class="paper">
+<div class="paper-head"><b>① 《NC》代码复现：人纤维化皮肤病成纤维细胞异质性（瘢痕疙瘩）</b><small>对应 Biomamba 推送：《NC》代码复现 | scRNA-seq 揭示人纤维化皮肤病中的成纤维细胞异质性和间充质成纤维细胞增加</small></div>
+<div class="paper-body">
+
+<h2>模块 1 · 文献元信息</h2>
+<dl class="kv">
+<dt>标题</dt><dd>Single-cell RNA-seq reveals fibroblast heterogeneity and increased mesenchymal fibroblasts in human fibrotic skin diseases（单细胞 RNA 测序揭示人纤维化皮肤病的成纤维细胞异质性及间充质成纤维细胞增加）</dd>
+<dt>期刊/IF</dt><dd>Nature Communications · IF≈14.7（2021）</dd>
+<dt>发表时间</dt><dd>2021-06-17</dd>
+<dt>DOI</dt><dd>10.1038/s41467-021-24110-y</dd>
+<dt>单位</dt><dd>南方医科大学皮肤病医院（广州）；一作 Deng CC / Hu YF / Zhu DH；通讯 Yang Bin、Wang Dong 团队，研究方向：皮肤纤维化与成纤维细胞生物学</dd>
+<dt>一句话结论</dt><dd>瘢痕疙瘩成纤维细胞分为 4 亚群，间充质亚群显著扩增并通过分泌 POSTN 驱动胶原沉积。</dd>
+</dl>
+
+<h2>模块 2 · 科学问题与创新点</h2>
+<ul>
+<li><b>痛点</b>：皮肤纤维化疾病（瘢痕疙瘩、硬皮病等）缺乏根治手段；既往单细胞研究集中在肺纤维化/系统硬化，皮肤纤维化中成纤维细胞异质性图谱空白。</li>
+<li><b>创新点（方法学）</b>：scRNA-seq 全景分群 + 流式分选特定亚群（CD90⁺/CD266⁺/CD9⁻）做 bulk RNA-seq 互证 —— 单细胞发现、流式验证、bulk 定量的三角互证范式。</li>
+<li><b>创新点（生物学发现）</b>：定义 secretory-papillary / secretory-reticular / mesenchymal / pro-inflammatory 4 亚群；mesenchymal 亚群扩增在瘢痕疙瘩与硬皮病中保守存在，POSTN 是其促胶原效应的关键介质。</li>
+<li><b>创新点（数据集）</b>：首个人瘢痕疙瘩真皮单细胞图谱（40,655 个细胞），已公开可复用。</li>
+<li><b>转化价值</b>：间充质成纤维细胞亚群为抗皮肤纤维化治疗提供细胞层面的潜在靶点。</li>
+</ul>
+
+<h2>模块 3 · 实验设计与队列</h2>
+<table>
+<tr><th>组学/实验</th><th>平台</th><th>样本</th></tr>
+<tr><td>scRNA-seq</td><td>10x Genomics（Illumina NovaSeq 6000）</td><td>瘢痕疙瘩真皮 n=3（21,488 cells）；正常瘢痕真皮 n=3（19,167 cells）</td></tr>
+<tr><td>Bulk RNA-seq</td><td>流式分选后测序</td><td>瘢痕疙瘩 CD266⁺/CD9⁻ 成纤维细胞 vs 其余成纤维细胞</td></tr>
+<tr><td>公共数据交叉验证</td><td>硬皮病（scleroderma）公开 scRNA-seq 数据</td><td><span class="na">原文补充材料，复现贴按原文整合</span></td></tr>
+<tr><td>功能实验</td><td>细胞培养 / POSTN 干预 / 胶原检测</td><td>原代瘢痕疙瘩成纤维细胞</td></tr>
+</table>
+<p style="font-size:13.5px;color:var(--muted);">对照逻辑：瘢痕疙瘩 vs 正常瘢痕（同部位真皮、同为瘢痕组织，排除"瘢痕 vs 正常皮肤"的混杂），再用硬皮病验证跨疾病保守性。</p>
+
+<h2>模块 4 · 核心分析流程</h2>
+<div class="flow">原始 fastq → <b>CellRanger</b>（版本<span class="na">原文未披露</span>）比对定量 → <b>Seurat</b> 质控/标准化/降维聚类（nFeature、MT% 等阈值<span class="na">原文未披露</span>）→ 细胞大类注释（经典 marker）→ 成纤维细胞亚群细分与 marker 鉴定 → 组间亚群比例比较 → 流式分选验证亚群存在性 → bulk RNA-seq 对比验证 → 硬皮病数据跨疾病验证 → POSTN 功能实验。</div>
+<ul>
+<li><b>注释策略</b>：marker 基因人工注释；4 亚群以功能分泌特征命名（secretory-papillary、secretory-reticular、mesenchymal、pro-inflammatory），参考既有真皮成纤维细胞单细胞文献。</li>
+<li><b>验证层级</b>：计算结果须经流式 + bulk + 体外功能三级验证（本文的可贵之处）。</li>
+</ul>
+
+<h2>模块 5 · 关键结果与图表解读</h2>
+<table>
+<tr><th>图</th><th>回答的问题</th><th>图型/统计</th><th>核心结论</th></tr>
+<tr><td>Fig.1</td><td>瘢痕疙瘩真皮由哪些细胞构成</td><td>研究设计示意 + UMAP 全景 + marker 点图</td><td>鉴定出成纤维细胞、免疫细胞、内皮等主要类群</td></tr>
+<tr><td>Fig.2</td><td>成纤维细胞内部是否异质</td><td>亚群 UMAP + 热图 + 小提琴图</td><td>4 亚群各有特异 marker 与分泌特征</td></tr>
+<tr><td>Fig.3</td><td>疾病组与对照组亚群构成差异</td><td>比例堆叠图 + 组间比较检验</td><td>mesenchymal 亚群在瘢痕疙瘩中显著扩增</td></tr>
+<tr><td>Fig.4</td><td>该现象是否跨疾病保守</td><td>硬皮病公共数据整合 UMAP/比例</td><td>硬皮病中同样扩增 → 广谱纤维化机制</td></tr>
+<tr><td>Fig.5</td><td>mesenchymal 亚群如何促纤维化</td><td>功能实验柱状图（胶原/POSTN）</td><td>通过分泌 POSTN 促进其他成纤维细胞合成胶原</td></tr>
+</table>
+<p class="note" style="font-size:12.5px;color:var(--muted);">注：图序按原文结构概括，逐 panel 细节以原文与 Biomamba 复现贴为准。</p>
+
+<h2>模块 6 · 数据与代码资源</h2>
+<ul>
+<li>GEO：<b>GSE175866</b>（BioProject PRJNA734158；SRA SRP322078；处理矩阵随 GEO 附 CSV）</li>
+<li>原文未托管独立 GitHub 代码；<b>Biomamba 推送提供配套复现代码与测试数据</b>（公众号推送文末链接）</li>
+<li>作者主页/原始补充材料：nature.com 文章页 Supplementary Information</li>
+</ul>
+
+<h2>模块 7 · 对我们工作的可借鉴点</h2>
+<ul>
+<li><b>直接迁移</b>：成纤维细胞 4 亚群注释 marker 体系可直接用于皮肤/纤维化相关课题的注释参考；"单细胞发现 → 流式 + bulk + 功能实验三级验证"是高分文章的标准叙事链。</li>
+<li><b>踩坑提示</b>：真皮组织消化对脆弱细胞亚群有偏倚；每组仅 n=3，比例差异结论需独立队列加固；亚群比例统计用样本为单位（而非细胞为单位）做检验，避免伪重复。</li>
+<li><b>适合引用章节</b>：课题"细胞类型注释与亚群功能解析"、"疾病 vs 对照亚群构成差异"方法学参考。</li>
+</ul>
+
+<h2>模块 8 · 待深入学习 / 延伸阅读</h2>
+<ol>
+<li>Tabib T. et al., <i>Nat Commun</i> 2018 — 系统性硬化皮肤成纤维细胞单细胞先驱工作</li>
+<li>Solé-Boldo L. et al., <i>Nat Commun</i> 2020 — 人皮肤老化单细胞图谱（真皮成纤维细胞参考）</li>
+<li>Philippeos C. et al., <i>J Invest Dermatol</i> 2018 — 人真皮成纤维细胞两大谱系（papillary/reticular）定义</li>
+<li>追踪点：间充质成纤维细胞与 CAF（癌相关成纤维细胞）亚群的谱系关系；POSTN 靶向的临床进展。</li>
+</ol>
+<div class="quote"><b>【作者观点】</b>作者认为该发现"有助于深入理解皮肤纤维化发病机制，并为纤维化疾病治疗提供潜在靶细胞"（摘要原意）。</div>
+</div>
+</div>
+
+<!-- ==================== PAPER 2 ==================== -->
+<div class="paper">
+<div class="paper-head"><b>② 《Cancer Cell》时空单细胞：结直肠癌 PD-1 治疗免疫细胞动态</b><small>对应 Biomamba 推送：《Cancer Cell》| 时空单细胞揭示 CRC 的 PD-1 治疗免疫细胞动态</small></div>
+<div class="paper-body">
+
+<h2>模块 1 · 文献元信息</h2>
+<dl class="kv">
+<dt>标题</dt><dd>Spatiotemporal single-cell analysis decodes cellular dynamics underlying different responses to immunotherapy in colorectal cancer（时空单细胞分析解码结直肠癌免疫治疗不同响应的细胞动态）</dd>
+<dt>期刊/IF</dt><dd>Cancer Cell · IF≈48.8（2024）</dd>
+<dt>发表时间</dt><dd>2024-07-08（Cancer Cell 42(7): 1268–1285.e7）</dd>
+<dt>DOI</dt><dd>10.1016/j.ccell.2024.06.009</dd>
+<dt>单位</dt><dd>北京大学生物医学前沿创新中心（BIOPIC）张泽民团队 + 北京大学肿瘤医院武爱文团队；一作 Chen Yuqing / Wang Dongfang / Li Yingjie；方向：肿瘤免疫微环境与单细胞计算生物学</dd>
+<dt>一句话结论</dt><dd>新辅助 PD-1 阻断下 CRC 局部与外周免疫协同演化，Ttr-like/Tex 动态及外周血基线 MHC-II 签名关联疗效。</dd>
+</dl>
+
+<h2>模块 2 · 科学问题与创新点</h2>
+<ul>
+<li><b>痛点</b>：CRC 中 ICB 仅对部分患者（尤其 MSI-H/dMMR）有效，治疗过程中 TME 与全身免疫如何动态重塑、为何响应不同，缺乏系统刻画。</li>
+<li><b>创新点（方法学）</b>：连续多点采样（血/瘤/邻近正常 × 多时间点）+ scRNA-seq + scTCR-seq 的时空整合设计；从治疗过程分解出"细胞程序（cellular programs）"的协变分析框架。</li>
+<li><b>创新点（生物学发现）</b>：鉴定 TLS-like、肿瘤富集、组织重构三类响应相关细胞程序；肿瘤内"血液来源 Ttr-like 细胞"呈低耗竭表型且其丰度预示更好疗效。</li>
+<li><b>创新点（数据集）</b>：22 例患者 169 例连续样本的 CRC 免疫治疗动态单细胞图谱。</li>
+<li><b>转化价值</b>：外周血 CD8⁺ T 细胞基线 MHC-II 相关签名 → 无创疗效预测标志物候选。</li>
+</ul>
+
+<h2>模块 3 · 实验设计与队列</h2>
+<table>
+<tr><th>维度</th><th>内容</th></tr>
+<tr><td>队列</td><td>22 例接受新辅助 PD-1 阻断患者（20 CRC + 2 十二指肠癌）；疗效分级 CR / PR / SD，肿瘤消退率作为连续变量</td></tr>
+<tr><td>样本</td><td>共 169 例：外周血、肿瘤、邻近正常组织，多时间点连续采集</td></tr>
+<tr><td>组学</td><td>scRNA-seq（10x 平台）+ scTCR-seq（克隆型追踪）</td></tr>
+<tr><td>对照逻辑</td><td>治疗前 vs 治疗中/后（个体内纵向对照）+ 响应者 vs 无响应者（个体间横向对照），双轴设计</td></tr>
+</table>
+
+<h2>模块 4 · 核心分析流程</h2>
+<div class="flow">多样本 fastq → <b>CellRanger</b>（scRNA + scTCR 各自定量；版本<span class="na">原文未披露</span>）→ QC 与多样本整合 → 细胞大类注释 → T 细胞亚群细分（Tex、Ttr-like 等耗竭谱系）→ <b>Ro/e</b>（组织富集偏好分析，张泽民团队框架）→ TCR 克隆型扩增/迁移追踪（瘤↔血）→ 共变"细胞程序"鉴定 → 基线外周血特征与疗效关联（回归/Cox）。QC 阈值与聚类分辨率<span class="na">原文未披露</span>。</div>
+
+<h2>模块 5 · 关键结果与图表解读</h2>
+<table>
+<tr><th>图</th><th>回答的问题</th><th>图型/统计</th><th>核心结论</th></tr>
+<tr><td>Fig.1</td><td>队列与整体景观</td><td>设计示意 + UMAP + 疗效泳道图</td><td>建立跨组织动态免疫图谱；CR/PR/SD 分级明确</td></tr>
+<tr><td>Fig.2</td><td>治疗中 TME 细胞如何协同变化</td><td>细胞程序模块热图/网络图</td><td>TLS-like、肿瘤富集、组织重构三大程序与响应程度各异关联</td></tr>
+<tr><td>Fig.3</td><td>疗效相关的 T 细胞动态</td><td>UMAP + 比例动态折线 + 相关性</td><td>Tex 比例变化与多种肿瘤富集细胞协同；Ttr-like 关联疗效</td></tr>
+<tr><td>Fig.4</td><td>肿瘤 Ttr-like 的来源</td><td>血液/肿瘤对比 + 耗竭评分</td><td>血液来源 Ttr-like 耗竭程度更低</td></tr>
+<tr><td>Fig.5</td><td>克隆动态</td><td>TCR 克隆追踪/共享分析</td><td>治疗驱动特异性克隆扩增与迁移</td></tr>
+<tr><td>Fig.6</td><td>能否基线预测疗效</td><td>特征-疗效关联/ROC 类分析</td><td>外周血 CD8⁺T 基线 MHC-II 签名高 → 响应更好</td></tr>
+</table>
+
+<h2>模块 6 · 数据与代码资源</h2>
+<ul>
+<li>原始数据存储编号：以原文 STAR Methods 为准（<span class="na">本次检索未确认具体 GEO/GSA 号</span>）；Biomamba 复现贴提供了整理后的数据与代码入口</li>
+<li>补充材料：Cell Press 文章页（Table S1–S5 类：样本元数据、marker、队列信息）</li>
+</ul>
+
+<h2>模块 7 · 对我们工作的可借鉴点</h2>
+<ul>
+<li><b>直接迁移</b>：纵向采样 + 跨组织设计适用于任何治疗干预类课题；Ro/e 组织偏好与"细胞程序"共变分析可直接复用于疗效机制研究；外周血基线标志物筛选策略（scRNA 发现 → 大队列验证）。</li>
+<li><b>踩坑提示</b>：纵向队列样本流失与随访依从性是最大风险；疗效需"分级 + 连续变量"双轨定义避免信息损失；克隆追踪要求 scTCR 与 scRNA 同样本配对。</li>
+<li><b>适合引用章节</b>："治疗前后动态比较"、"肿瘤-外周互作"、"疗效预测标志物"方法学参考。</li>
+</ul>
+
+<h2>模块 8 · 待深入学习 / 延伸阅读</h2>
+<ol>
+<li>Zhang L. et al., <i>Cell</i> 2020 — 张泽民团队 CRC 单细胞图谱奠基之作（Ro/e 框架来源）</li>
+<li>Li Y. et al. / 北大肿瘤新辅助免疫治疗临床研究系列（临床设计参照）</li>
+<li>Thorsson V. et al., <i>Immunity</i> 2018 — TCGA 免疫亚型（外周/局部免疫分类参照）</li>
+<li>追踪点：Ttr-like 细胞的组织驻留 vs 循环属性之争；新辅助 ICB 在 MSS 型 CRC 的扩展证据。</li>
+</ol>
+<div class="quote"><b>【作者观点】</b>研究强调"外周免疫系统对免疫治疗疗效的关键作用"，提示疗效差异不仅是肿瘤局部事件，也是全身免疫状态的反映（论文结论原意）。</div>
+</div>
+</div>
+
+<!-- ==================== PAPER 3 ==================== -->
+<div class="paper">
+<div class="paper-head"><b>③ 《Nature》：MYB 调控衰竭性 T 细胞与检查点抑制响应</b><small>对应 Biomamba 推送：《Nature》| MYB 调控衰竭性 T 细胞对检查点抑制的响应</small></div>
+<div class="paper-body">
+
+<h2>模块 1 · 文献元信息</h2>
+<dl class="kv">
+<dt>标题</dt><dd>MYB orchestrates T cell exhaustion and response to checkpoint inhibition（MYB 统筹 T 细胞耗竭与检查点抑制响应）</dd>
+<dt>期刊/IF</dt><dd>Nature · IF≈69.5（2022）</dd>
+<dt>发表时间</dt><dd>2022-08-17 在线；Nature 609(7926): 354–360</dd>
+<dt>DOI</dt><dd>10.1038/s41586-022-05105-1</dd>
+<dt>单位</dt><dd>墨尔本大学/WEHI（Axel Kallies）+ 慕尼黑工业大学（Veit R. Buchholz）共同通讯；一作 Tsui C / Kretschmer L / Rapelius S；方向：T 细胞耗竭的转录调控</dd>
+<dt>一句话结论</dt><dd>c-Myb 决定 CD62L⁺ TPEX 干细胞样亚群，是 PD-1 阻断后增殖爆发的唯一来源。</dd>
+</dl>
+
+<h2>模块 2 · 科学问题与创新点</h2>
+<ul>
+<li><b>痛点</b>：耗竭性 T 细胞由 TPEX（TCF1⁺ 前体）维持，但 TPEX 内部异质性、长期自我更新与检查点阻断响应的分子开关不明。</li>
+<li><b>创新点（方法学）</b>：LCMV Clone 13 慢性感染 + P14 TCR 转基因 + TCF7-GFP 报告小鼠的多层模型体系；scRNA-seq 与分选 bulk RNA-seq 互补验证。</li>
+<li><b>创新点（生物学发现）</b>：TPEX 分为 CD62L⁺（真干样）与 CD62L⁻ 两群；c-Myb 身兼双职——维持干性/自我更新 + 主动诱导功能耗竭以防止致死性免疫病理。</li>
+<li><b>创新点（数据集）</b>：慢性感染 d28 的 TCF7-GFP⁺ P14 单细胞图谱 + 三亚群分选 bulk 数据。</li>
+<li><b>转化价值</b>：CD62L⁺ TPEX 是增强 ICB 与细胞治疗（CAR-T/TIL）持久性的新靶点。</li>
+</ul>
+
+<h2>模块 3 · 实验设计与队列</h2>
+<table>
+<tr><th>维度</th><th>内容</th></tr>
+<tr><td>模型</td><td>小鼠 LCMV 慢性感染（Clone 13 / Docile）vs 急性感染对照；P14 TCR 转基因 CD8⁺T 细胞</td></tr>
+<tr><td>组学</td><td>scRNA-seq：d28 p.i. TCF7-GFP⁺ P14（GSE199839）；Bulk RNA-seq：分选 CD62L⁺TPEX / CD62L⁻TPEX / TEX（GSE188526；SuperSeries GSE205608）</td></tr>
+<tr><td>干预</td><td>Myb 条件性敲除（功能缺失）+ 过继转移（功能验证）+ PD-1 阻断（响应来源鉴定）</td></tr>
+<tr><td>对照逻辑</td><td>WT vs Myb⁻/⁻；急性 vs 慢性感染；阻断 vs 不阻断 —— 三层对照锁定因果</td></tr>
+</table>
+
+<h2>模块 4 · 核心分析流程</h2>
+<div class="flow">scRNA-seq（10x）→ 聚类注释（TPEX/TEX 谱系，marker：Tcf7、Sell、Slamf6/Ly108 vs Havcr2、Cx3cr1）→ <b>轨迹分析</b>（CD62L⁺TPEX → CD62L⁻TPEX → 分叉至 CX3CR1⁺/CX3CR1⁻ TEX）→ 分选 bulk RNA-seq 验证三亚群转录特征 → Myb 敲除表型（病毒控制/细胞因子/免疫病理）→ PD-1 阻断后增殖来源溯源。软件版本与 QC 参数<span class="na">原文未披露（见 Methods）</span>。</div>
+
+<h2>模块 5 · 关键结果与图表解读</h2>
+<table>
+<tr><th>图</th><th>回答的问题</th><th>图型/统计</th><th>核心结论</th></tr>
+<tr><td>Fig.1</td><td>TPEX 是否同质</td><td>UMAP + marker 特征图</td><td>发现 CD62L⁺ 小亚群，具初始/中央记忆样转录特征</td></tr>
+<tr><td>Fig.2</td><td>发育层级如何排布</td><td>轨迹图 + 流式验证</td><td>CD62L⁺TPEX 位于层级顶端，分叉产生两类 TEX</td></tr>
+<tr><td>Fig.3</td><td>c-Myb 的必要性</td><td>敲除表型 + 流式 + 病理评分</td><td>缺 Myb → TPEX 无法维持，细胞因子失控、致死性病理</td></tr>
+<tr><td>Fig.4</td><td>ICB 响应从哪来</td><td>PD-1 阻断 + 亚群增殖追踪</td><td>增殖爆发唯一来自 CD62L⁺ TPEX，且依赖 MYB</td></tr>
+</table>
+
+<h2>模块 6 · 数据与代码资源</h2>
+<ul>
+<li>GEO：<b>GSE199839</b>（scRNA-seq）、<b>GSE188526</b>（bulk）、SuperSeries <b>GSE205608</b>；BioProject PRJNA821678 / PRJNA779269</li>
+<li>原始附件提供 LOOM/MTX/TSV 矩阵，可直接用 Seurat/Scanpy 复现；全文 OA（PMC9452299）</li>
+</ul>
+
+<h2>模块 7 · 对我们工作的可借鉴点</h2>
+<ul>
+<li><b>直接迁移</b>：T 细胞耗竭亚群注释 marker 体系（TCF7/SELL/SLAMF6/ID3 vs HAVCR2/CX3CR1）可直接用于肿瘤 TIL 注释；"计算发现亚群 → 分选 bulk 验证 → 条件敲除证因果"三段式是机制研究的黄金范式。</li>
+<li><b>踩坑提示</b>：TPEX/TEX 界定在小鼠（Ly108/TIM3）与人（CD39/TCF7）marker 不同，跨物种引用需转换；轨迹结论必须有流式/分选数据兜底。</li>
+<li><b>适合引用章节</b>："T 细胞耗竭谱系与轨迹推断"、"转录因子功能验证"方法学参考。</li>
+</ul>
+
+<h2>模块 8 · 待深入学习 / 延伸阅读</h2>
+<ol>
+<li>Im S.J. et al., <i>Nature</i> 2016 — PD-1 治疗后增殖爆发来源的开创性发现（nature19330）</li>
+<li><i>Nat Rev Immunol</i> 2022 研究亮点评述（s41577-022-00778-1）— 官方解读</li>
+<li><i>Nat Immunol</i> 2022 评论 "c-Myb redefines the hierarchy of stem-like T cells"</li>
+<li>追踪点：CD62L⁺ TPEX 在肿瘤（而非慢性感染）中的对应物验证；MYB 作为细胞治疗工程靶点的可行性。</li>
+</ol>
+<div class="quote"><b>【作者观点】</b>作者指出 MYB 是"统合耗竭两个核心面向——功能下调与长期自我更新维持——的转录统筹者"，并认为 CD62L⁺ TPEX 是新的免疫治疗策略靶点（摘要原意）。</div>
+</div>
+</div>
+
+<!-- ==================== PAPER 4 ==================== -->
+<div class="paper">
+<div class="paper-head"><b>④ 《Cell》复现：泛癌中性粒细胞图谱与抗原呈递潜能</b><small>对应 Biomamba 推送：《Cell》复现 | 中性粒细胞 scRNA-seq 图谱阐明抗肿瘤抗原呈递效力</small></div>
+<div class="paper-body">
+
+<h2>模块 1 · 文献元信息</h2>
+<dl class="kv">
+<dt>标题</dt><dd>Neutrophil profiling illuminates anti-tumor antigen-presenting potency（中性粒细胞图谱照亮抗肿瘤抗原呈递潜能）</dd>
+<dt>期刊/IF</dt><dd>Cell · IF≈45.5（2024）</dd>
+<dt>发表时间</dt><dd>2024-03-14（Cell 187(6): 1422–1439.e24）</dd>
+<dt>DOI</dt><dd>10.1016/j.cell.2024.02.005</dd>
+<dt>单位</dt><dd>复旦大学（高强、樊嘉）+ 中科院上海免疫与感染研究所（张晓明）+ 杨力团队；方向：肿瘤免疫、泛癌单细胞图谱</dd>
+<dt>一句话结论</dt><dd>泛癌中性粒细胞 10 态图谱发现亮氨酸可诱导的 MHCII⁺ 抗原呈递亚群，可增强抗 PD-1 疗效。</dd>
+</dl>
+
+<h2>模块 2 · 科学问题与创新点</h2>
+<ul>
+<li><b>痛点</b>：中性粒细胞半衰期短（6–8 h）、mRNA 含量极低（0.33 μg/百万细胞，约为巨噬细胞 1/8），泛癌尺度的系统图谱长期缺失；其促癌/抗癌角色争议不休。</li>
+<li><b>创新点（方法学）</b>：17 癌种 225 样本整合建库策略（自测 79.29%）+ Ro/e 组织偏好 + 4 种轨迹算法交叉验证 + 单细胞代谢通路活性分析 + 空间转录组/mIHC 多模态验证链。</li>
+<li><b>创新点（生物学发现）</b>：HLA-DR⁺CD74⁺ 抗原呈递型中性粒细胞（终末成熟态）关联良好预后；亮氨酸 → 线粒体结构功能重塑 → 乙酰辅酶 A↑ → MHC-II 启动子 H3K27ac → 抗原呈递程序的完整"代谢-表观"调控链。</li>
+<li><b>创新点（数据集）</b>：首个泛癌中性粒细胞单细胞图谱（143 患者/225 样本）。</li>
+<li><b>转化价值</b>：抗原呈递型中性粒细胞过继回输、亮氨酸饮食辅助 ICB 的治疗新策略。</li>
+</ul>
+
+<h2>模块 3 · 实验设计与队列</h2>
+<table>
+<tr><th>层级</th><th>设计</th></tr>
+<tr><td>筛选层</td><td>TCGA 31 癌种 8,766 样本 × 8 种免疫浸润算法 → 共识浸润评分，按高/异质/低三型指导采样癌种</td></tr>
+<tr><td>图谱层</td><td>17 癌种、143 患者、225 样本 scRNA-seq（自测 79.29% + 公共数据补充）</td></tr>
+<tr><td>验证层</td><td>8 癌种 TMA 队列（n=1,116）mIHC；流式相关性验证（n=24 / n=68）；空间转录组</td></tr>
+<tr><td>机制层</td><td>亮氨酸体外刺激 + 代谢组筛选 + 线粒体/表观检测</td></tr>
+<tr><td>治疗层</td><td>小鼠多癌种模型：中性粒细胞过继 + 亮氨酸饮食 + anti-PD-1 联合</td></tr>
+</table>
+
+<h2>模块 4 · 核心分析流程</h2>
+<div class="flow">TCGA 浸润共识评分 → 自测+公共 scRNA 多样本整合聚类 → <b>10 亚群注释</b>（HLA-DR⁺CD74⁺ / VEGFA⁺SPP1⁺ / CXCL8⁺IL1B⁺ 等）→ <b>Ro/e</b> 组织偏好 → <b>4 种轨迹算法</b>交叉推断成熟度（HLA-DR⁺ 为终末态）→ 单细胞代谢通路活性 → 亮氨酸筛选与体外验证 → H3K27ac 机制验证 → 空间转录组/mIHC 定位验证 → 体内治疗实验。整合与 QC 具体参数<span class="na">原文 Methods，推送未逐项展开</span>。</div>
+
+<h2>模块 5 · 关键结果与图表解读</h2>
+<table>
+<tr><th>图</th><th>回答的问题</th><th>图型/统计</th><th>核心结论</th></tr>
+<tr><td>Fig.1</td><td>去哪采、浸润规律</td><td>TCGA 共识评分条形图/分型</td><td>中性粒细胞浸润呈组织选择性三型</td></tr>
+<tr><td>Fig.2</td><td>图谱与亚群-预后</td><td>UMAP + Ro/e + 森林图（HR）+ TMA log-rank</td><td>HLA-DR⁺ 预后最好、VEGFA⁺SPP1⁺ 最差（跨癌种保守）</td></tr>
+<tr><td>Fig.3</td><td>亚群间发育关系</td><td>4 轨迹算法 + mIHC/流式</td><td>HLA-DR⁺CD74⁺ 为终末成熟态</td></tr>
+<tr><td>Fig.4</td><td>什么代谢物诱导它</td><td>代谢通路活性热图 + 代谢组</td><td>亮氨酸上调 MHC-II 及共刺激分子</td></tr>
+<tr><td>Fig.5</td><td>分子机制</td><td>线粒体成像 + 表观检测</td><td>亮氨酸→线粒体重塑→acetyl-CoA→H3K27ac→HLA-DR</td></tr>
+<tr><td>Fig.6</td><td>能否用于治疗</td><td>小鼠肿瘤生长曲线 + 生存</td><td>过继回输/亮氨酸饮食增强 anti-PD-1</td></tr>
+</table>
+
+<h2>模块 6 · 数据与代码资源</h2>
+<ul>
+<li>自测与公共数据编号见原文 STAR Methods 与 Table S5（空间转录组与小鼠 scRNA-seq 元数据）；<span class="na">具体 GEO/GSA 号以原文为准</span></li>
+<li>补充表 S1–S5 系统整理：样本元数据、亚群 marker、代谢通路活性、代谢组谱 —— 是复现的重要抓手</li>
+</ul>
+
+<h2>模块 7 · 对我们工作的可借鉴点</h2>
+<ul>
+<li><b>直接迁移</b>："TCGA 大队列筛浸润 → 自测+公共整合建图谱 → Ro/e + 多算法轨迹 → 代谢/表观机制 → TMA/空间/动物五层验证"是泛癌图谱类文章的完整范式，可整套复用于其他稀有免疫细胞（肥大细胞、嗜酸性粒细胞等）。</li>
+<li><b>踩坑提示</b>：低 mRNA/脆弱细胞（中性粒细胞类）建库需优化消化与上机策略；多算法轨迹结论不一致时以正交实验（流式/成像）仲裁；泛癌整合要防批次效应主导分群。</li>
+<li><b>适合引用章节</b>："泛癌整合图谱构建"、"稀有免疫细胞分析"、"代谢-表观机制验证"方法学参考。</li>
+</ul>
+
+<h2>模块 8 · 待深入学习 / 延伸阅读</h2>
+<ol>
+<li>Thorsson V. et al., <i>Immunity</i> 2018 — TCGA 免疫亚型（浸润分型方法来源）</li>
+<li>Zilionis R. et al., <i>Immunity</i> 2019 — 肺癌髓系细胞（含中性粒细胞）单细胞图谱先驱</li>
+<li>肿瘤相关中性粒细胞 N1/N2 极化经典文献（Fridlender et al., <i>Cancer Cell</i> 2009）— 对照本文的亚群观</li>
+<li>追踪点：抗原呈递型中性粒细胞与 DC 的功能分工；亮氨酸饮食辅助免疫治疗的临床转化与争议。</li>
+</ol>
+<div class="quote"><b>【作者观点】</b>作者总结该图谱"不仅揭示了中性粒细胞跨癌种的分化差异，也提示了如抗原呈递型中性粒细胞回输等治疗机会"（摘要原意）。</div>
+</div>
+</div>
+
+<h2>五、横向提炼：四篇高分文献的共性套路</h2>
+<div class="card">
+<table>
+<tr><th>维度</th><th>共性规律</th></tr>
+<tr><td>设计</td><td>疾病 vs 对照 + 纵向/跨组织双轴设计；计算发现必配正交实验验证</td></tr>
+<tr><td>分析</td><td>亚群注释（marker 体系）→ Ro/e 组织偏好 → 轨迹（≥2 种算法）→ 组间比例/关联 → 外部队列验证</td></tr>
+<tr><td>机制</td><td>从"亚群差异"下沉到"分子开关"（POSTN / c-Myb / 亮氨酸-H3K27ac / Ttr-like 来源）</td></tr>
+<tr><td>转化</td><td>均以"标志物/靶点/治疗策略"收尾，形成发现-机制-转化闭环</td></tr>
+<tr><td>可复现</td><td>数据全部公开（GEO/补充表）；Biomamba 推送提供复现代码，适合作为流程训练素材</td></tr>
+</table>
+</div>
+
+<footer>Biomamba文献阅读skills · 蒸馏笔记 v1 · 整理日期 2026-09-24 · 元信息/数据编号已核实，分析参数以原文 Methods 为准</footer>
+</div>
+</body>
+</html>

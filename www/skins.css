@@ -1,0 +1,828 @@
+/* ===========================================================================
+ * 皮肤（V8 item 4）
+ * ===========================================================================
+ * 用户的原话：「设置中加一个皮肤选择模块，明亮和黑暗主体必须要有，有其它酷炫
+ * 的主题例如 ChatGPT 主题、claude 主题、apple 主题也可以加入备选」。
+ *
+ * 这一层的做法是**整套颜色变量换一遍**，不是给每个组件写一套覆盖。
+ * Bootstrap 5.3 的组件绝大多数都走 `var(--bs-*)`（.form-control 的背景、
+ * .card 的底色、.table 的斑马纹……），把变量换掉它们就跟着换；只有少数
+ * 地方 bslib 把颜色**编译成了字面量**（按钮的 --bs-btn-bg、各种 -rgb 和
+ * -bg-subtle 派生色），那些在文件下半部分单独重绑一次。
+ *
+ * ★★ 为什么选择器写成 `:root[data-skin="x"]` 而不是 `:root`：
+ *    这一层的加载顺序**靠不住**。bslib 会把组件自己的 CSS
+ *    （bslib-component-css）作为 htmlDependency 插在静态 <link> **之后**，
+ *    而 Bootstrap 主题那套又是显式写在 tags$head 里的、排在前面 ——
+ *    两头都不由这个文件说了算（V5 那个 sticky 导航栏的 bug 就是这么来的，
+ *    见 codex.css 顶部）。而 `:root[data-skin]` 是 (0,2,0)，稳稳压过
+ *    Bootstrap 的 `:root`（0,1,0），跟谁先谁后无关。
+ *    同理，下半部分覆盖组件时一律带 `html[data-skin]` 前缀。
+ *
+ * ★ 为什么颜色只在**客户端**换、服务端那份 bslib 主题不动：
+ *    `shinyOptions(bootstrapTheme = dsapp_theme())` 是**全局**的，而皮肤是
+ *    每个账号各自的 —— 多人在线时按会话换主题，改的是别人的界面。
+ *    更要命的是那一格是导航栏能不能点的关键（见 app.R 里那段长注释），
+ *    动它等于拿整个左栏做赌注。所以：bslib 主题永远保持深色那一套，
+ *    只负责让 bslib 的渲染钩子认得出来；**看得见的颜色全在这一层换**。
+ *
+ * ⚠️ 新增一个皮肤要做三件事，缺一不可：
+ *      1. 在这里加一个 `:root[data-skin="id"]` 块；
+ *      2. 在 R/skins.R 的 DSAPP_SKINS 里加一行（id 必须一致）；
+ *      3. 跑 tests/ui_v8/skins.py —— 它会逐个皮肤检查**对比度**，
+ *         而不只是"CSS 里有这个块"。
+ *
+ * ★★ 每个 `--bs-xxx-color` / `--bs-xxx-bg` 都必须把 `--bs-xxx-rgb` 一起写全
+ *    （V9 item 10 补的）。Bootstrap 那份 `:root` 里的 -rgb 变量是**编译期**
+ *    从 bslib 主题算出来的字面量，不是 `rgb(from var(...))`，所以换了皮肤
+ *    它**不会跟着变**；而且 bslib 的深色主题把黑白反着编译
+ *    （实测 --bs-black = #E6EDF3、--bs-white = #0D1117），
+ *    --bs-body-bg-rgb 里存的其实是前景色。任何 `rgba(var(--bs-*-rgb), a)`
+ *    都会拿到别的皮肤/别的极性的颜色。
+ *    症状是"字和底一样"——控件还在、还能点，只是看不见。
+ *    tests/ui_v8/skins.py 会逐个皮肤核对这一对，漏写会当场报出来。
+ * =========================================================================== */
+
+/* ---------------------------------------------------------------------------
+ * 与皮肤无关的结构变量
+ * ---------------------------------------------------------------------------
+ * 圆角、字体、阴影这些不算"配色"，但酷炫主题和朴素主题的区别有一半在这里
+ * （apple 和 chatgpt 看上去不同，很大程度是圆角和字体不同）。所以它们也
+ * 走变量，由下面每个皮肤各自覆盖。
+ * ------------------------------------------------------------------------- */
+:root {
+  --dsapp-footer-h: 2.6rem;
+  /* 等宽字体：产物名、代码、路径都靠它对齐。中文回退到系统字体，
+     否则等宽字体里的中文会变成一个个方块。 */
+  --dsapp-font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+                     "Liberation Mono", "Noto Sans Mono CJK SC", monospace;
+  --dsapp-radius: 6px;
+  --dsapp-radius-lg: .75rem;
+}
+
+/* ★ V16.6 item 6：很窄的屏（手机竖屏）上页脚放不下一行，**如实把预留高度
+ *   放大**，而不是继续删文案。
+ *
+ *   为什么要写在**这个文件**、而不是 app.css：本文件在 app.css **之后**加载，
+ *   两边都是 `:root`、权重相同，后写的赢 —— app.css 里那份 `--dsapp-footer-h`
+ *   其实一直是**死的**。V16.6 在 app.css 里加过一条同样的 @media，量出来
+ *   360px 下 padding-bottom 照样 41.6px，查了半天才发现是这里盖的。
+ *   所以这一版顺手把 app.css 那份重复声明删了（只留指路注释），
+ *   并加了自检：**全仓只许 skins.css 定义这个变量**。
+ *
+ *   为什么需要它：页脚是 position:fixed，而 #app_root 的 padding-bottom
+ *   补的就是这个变量 —— 页脚一旦折成两行（实测 360~400px：内容要 423px，
+ *   可用只有 336~376px），多出来的那 19px 就**压在页面内容上**。
+ *   ⚠️ 折行本身是**加这个链接之前就有**的（把新链接摘掉单独量过：400px
+ *      照样两行）。这一条修的是"压住内容"，不是"折行"。 */
+@media (max-width: 479.98px) {
+  :root { --dsapp-footer-h: 4.4rem; }
+}
+
+/* ===========================================================================
+ * 深色（默认）
+ * ===========================================================================
+ * 和 V7 之前的外观基本一致，两处**有意的**改动：
+ *   * --bs-body-color 用 #e6edf3，bslib 从 fg 算出来的 #d0d7dd 偏灰，
+ *     深色底上正文对比度只有 11:1 出头，长文读起来发闷；
+ *   * --bs-primary-bg-subtle 从 bslib 算出来的 #d9f1dc（**浅绿**）改成深绿。
+ *     那一个是 V8 item 2 的病根：Bootstrap 的 `-bg-subtle` 是给**浅色**
+ *     主题设计的浅色底，bslib 在深色主题下没有把它翻过来，于是
+ *     "用户消息气泡 = 浅绿底 + 浅灰字"，用户的原话是「绿底灰字，看不清楚」。
+ *     这里把所有 -bg-subtle / -text-emphasis 成对定义，两边都是配好的。
+ * =========================================================================== */
+:root,
+:root[data-skin="dark"] {
+  --bs-body-bg: #0d1117;
+  --bs-body-bg-rgb: 13, 17, 23;
+  --bs-body-color: #e6edf3;
+  --bs-body-color-rgb: 230, 237, 243;
+  --bs-emphasis-color: #ffffff;
+  --bs-emphasis-color-rgb: 255, 255, 255;
+  --bs-heading-color: #ffffff;
+  --bs-secondary-color: #9aa4b2;
+  --bs-secondary-color-rgb: 154, 164, 178;
+  --bs-secondary-bg: #21262d;
+  --bs-secondary-bg-rgb: 33, 38, 45;
+  --bs-tertiary-bg: #161b22;
+  --bs-tertiary-bg-rgb: 22, 27, 34;
+  --bs-border-color: #30363d;
+  --bs-border-color-translucent: rgba(240, 246, 252, .1);
+
+  --bs-primary: #3fb950;
+  --bs-primary-rgb: 63, 185, 80;
+  --bs-primary-bg-subtle: #0f2a15;
+  --bs-primary-border-subtle: #1f5c2b;
+  --bs-primary-text-emphasis: #56d364;
+
+  --bs-secondary: #8b949e;
+  --bs-secondary-rgb: 139, 148, 158;
+  --bs-secondary-bg-subtle: #1c2128;
+  --bs-secondary-border-subtle: #30363d;
+  --bs-secondary-text-emphasis: #c9d1d9;
+
+  --bs-success: #3fb950;
+  --bs-success-rgb: 63, 185, 80;
+  --bs-success-bg-subtle: #0f2a15;
+  --bs-success-border-subtle: #1f5c2b;
+  --bs-success-text-emphasis: #56d364;
+
+  --bs-info: #58a6ff;
+  --bs-info-rgb: 88, 166, 255;
+  --bs-info-bg-subtle: #0b2545;
+  --bs-info-border-subtle: #1f4d80;
+  --bs-info-text-emphasis: #79c0ff;
+
+  --bs-warning: #d29922;
+  --bs-warning-rgb: 210, 153, 34;
+  --bs-warning-bg-subtle: #2b1f06;
+  --bs-warning-border-subtle: #6b4c11;
+  --bs-warning-text-emphasis: #e3b341;
+
+  --bs-danger: #f85149;
+  --bs-danger-rgb: 248, 81, 73;
+  --bs-danger-bg-subtle: #2d0f0d;
+  --bs-danger-border-subtle: #7a2823;
+  --bs-danger-text-emphasis: #ff7b72;
+
+  --bs-link-color: #58a6ff;
+  --bs-link-color-rgb: 88, 166, 255;
+  --bs-link-hover-color: #79c0ff;
+  --bs-link-hover-color-rgb: 121, 192, 255;
+
+  --bs-highlight-bg: #3a2f00;
+  --bs-code-color: #ff7b72;
+
+  /* 左侧栏比主区再深一档：这是 codex 那套观感的来源，也让导航和内容
+     在深色下分得开（两区同色时，边界只剩一条 1px 的线）。 */
+  --dsapp-rail-bg: #010409;
+  --dsapp-on-primary: #04120a;
+  /* 用户自己发的消息。V8 item 2：深绿底 + **白字**（用户的原话是
+     「可以换成白字」）。不要退回 --bs-primary-bg-subtle —— 那是浅色主题
+     用的浅绿，配上浅色正文就是"绿底灰字"。 */
+  --dsapp-user-bg: #14532d;
+  --dsapp-user-fg: #ffffff;
+  --dsapp-flash-bg: rgba(88, 166, 255, .22);
+  --dsapp-code-bg: #161b22;
+  --dsapp-shadow: 0 8px 24px rgba(1, 4, 9, .5);
+  --dsapp-radius: 6px;
+  --dsapp-radius-lg: .75rem;
+}
+
+/* ===========================================================================
+ * 明亮
+ * =========================================================================== */
+:root[data-skin="light"] {
+  --bs-body-bg: #ffffff;
+  --bs-body-bg-rgb: 255, 255, 255;
+  --bs-body-color: #1f2328;
+  --bs-body-color-rgb: 31, 35, 40;
+  --bs-emphasis-color: #000000;
+  --bs-emphasis-color-rgb: 0, 0, 0;
+  --bs-heading-color: #111418;
+  --bs-secondary-color: #59636e;
+  --bs-secondary-color-rgb: 89, 99, 110;
+  --bs-secondary-bg: #eef1f4;
+  --bs-secondary-bg-rgb: 238, 241, 244;
+  --bs-tertiary-bg: #f6f8fa;
+  --bs-tertiary-bg-rgb: 246, 248, 250;
+  --bs-border-color: #d1d9e0;
+  --bs-border-color-translucent: rgba(31, 35, 40, .12);
+
+  --bs-primary: #1a7f37;
+  --bs-primary-rgb: 26, 127, 55;
+  --bs-primary-bg-subtle: #dafbe1;
+  --bs-primary-border-subtle: #aceebb;
+  --bs-primary-text-emphasis: #0a3622;
+
+  --bs-secondary: #59636e;
+  --bs-secondary-rgb: 89, 99, 110;
+  --bs-secondary-bg-subtle: #f0f2f4;
+  --bs-secondary-border-subtle: #d1d9e0;
+  --bs-secondary-text-emphasis: #2f353b;
+
+  --bs-success: #1a7f37;
+  --bs-success-rgb: 26, 127, 55;
+  --bs-success-bg-subtle: #dafbe1;
+  --bs-success-border-subtle: #aceebb;
+  --bs-success-text-emphasis: #0a3622;
+
+  --bs-info: #0969da;
+  --bs-info-rgb: 9, 105, 218;
+  --bs-info-bg-subtle: #ddf4ff;
+  --bs-info-border-subtle: #b6e3ff;
+  --bs-info-text-emphasis: #0a3069;
+
+  --bs-warning: #9a6700;
+  --bs-warning-rgb: 154, 103, 0;
+  --bs-warning-bg-subtle: #fff8c5;
+  --bs-warning-border-subtle: #f5e6a8;
+  --bs-warning-text-emphasis: #4d2d00;
+
+  --bs-danger: #cf222e;
+  --bs-danger-rgb: 207, 34, 46;
+  --bs-danger-bg-subtle: #ffebe9;
+  --bs-danger-border-subtle: #ffcecb;
+  --bs-danger-text-emphasis: #82071e;
+
+  --bs-link-color: #0969da;
+  --bs-link-color-rgb: 9, 105, 218;
+  --bs-link-hover-color: #0550ae;
+  --bs-link-hover-color-rgb: 5, 80, 174;
+
+  --bs-highlight-bg: #fff8c5;
+  --bs-code-color: #cf222e;
+
+  --dsapp-rail-bg: #f6f8fa;
+  --dsapp-on-primary: #ffffff;
+  /* 浅色主题下白字必须配**饱和**的底色，不然白字白底。深绿 #1a7f37 和白字
+     的对比度是 5.0:1，够正文用，也和深色那套的观感一致。 */
+  --dsapp-user-bg: #1a7f37;
+  --dsapp-user-fg: #ffffff;
+  --dsapp-flash-bg: rgba(9, 105, 218, .18);
+  --dsapp-code-bg: #f6f8fa;
+  --dsapp-shadow: 0 8px 24px rgba(31, 35, 40, .12);
+}
+
+/* ===========================================================================
+ * ChatGPT
+ * ===========================================================================
+ * 对着 chatgpt.com 的深色界面取的色：整片中性灰、几乎没有彩色，唯一的
+ * 彩色是那个青绿色 accent。圆角比默认大一档，字体走系统 sans。
+ * =========================================================================== */
+:root[data-skin="chatgpt"] {
+  --bs-body-bg: #212121;
+  --bs-body-bg-rgb: 33, 33, 33;
+  --bs-body-color: #ececec;
+  --bs-body-color-rgb: 236, 236, 236;
+  --bs-emphasis-color: #ffffff;
+  --bs-emphasis-color-rgb: 255, 255, 255;
+  --bs-heading-color: #ffffff;
+  --bs-secondary-color: #a8a8a8;
+  --bs-secondary-color-rgb: 168, 168, 168;
+  --bs-secondary-bg: #2f2f2f;
+  --bs-secondary-bg-rgb: 47, 47, 47;
+  --bs-tertiary-bg: #2a2a2a;
+  --bs-tertiary-bg-rgb: 42, 42, 42;
+  --bs-border-color: #444444;
+  --bs-border-color-translucent: rgba(255, 255, 255, .1);
+
+  --bs-primary: #10a37f;
+  --bs-primary-rgb: 16, 163, 127;
+  --bs-primary-bg-subtle: #10322a;
+  --bs-primary-border-subtle: #1c5c4c;
+  --bs-primary-text-emphasis: #4fd1b0;
+
+  --bs-secondary: #a8a8a8;
+  --bs-secondary-rgb: 168, 168, 168;
+  --bs-secondary-bg-subtle: #2f2f2f;
+  --bs-secondary-border-subtle: #444444;
+  --bs-secondary-text-emphasis: #d6d6d6;
+
+  --bs-success: #10a37f;
+  --bs-success-rgb: 16, 163, 127;
+  --bs-success-bg-subtle: #10322a;
+  --bs-success-border-subtle: #1c5c4c;
+  --bs-success-text-emphasis: #4fd1b0;
+
+  --bs-info: #6aa9ff;
+  --bs-info-rgb: 106, 169, 255;
+  --bs-info-bg-subtle: #16233a;
+  --bs-info-border-subtle: #2b4a76;
+  --bs-info-text-emphasis: #9cc4ff;
+
+  --bs-warning: #e0a83c;
+  --bs-warning-rgb: 224, 168, 60;
+  --bs-warning-bg-subtle: #2e2410;
+  --bs-warning-border-subtle: #5f4a1a;
+  --bs-warning-text-emphasis: #f0c674;
+
+  --bs-danger: #ef6a6a;
+  --bs-danger-rgb: 239, 106, 106;
+  --bs-danger-bg-subtle: #331a1a;
+  --bs-danger-border-subtle: #6e3232;
+  --bs-danger-text-emphasis: #ff9d9d;
+
+  --bs-link-color: #6aa9ff;
+  --bs-link-color-rgb: 106, 169, 255;
+  --bs-link-hover-color: #9cc4ff;
+  --bs-link-hover-color-rgb: 156, 196, 255;
+
+  --bs-highlight-bg: #3a2f00;
+  --bs-code-color: #ff9d9d;
+
+  --dsapp-rail-bg: #171717;
+  --dsapp-on-primary: #06231c;
+  /* ChatGPT 自己的用户气泡就是中灰底 + 近白字，不用绿色 —— 这一条皮肤
+     要"像 ChatGPT"，把气泡改成绿色反而破功。--dsapp-user-fg 仍是白。 */
+  --dsapp-user-bg: #303030;
+  --dsapp-user-fg: #ffffff;
+  --dsapp-flash-bg: rgba(106, 169, 255, .22);
+  --dsapp-code-bg: #0d0d0d;
+  --dsapp-shadow: 0 8px 24px rgba(0, 0, 0, .5);
+  --dsapp-radius: 10px;
+  --dsapp-radius-lg: 1rem;
+}
+
+/* ===========================================================================
+ * Claude
+ * ===========================================================================
+ * Claude 那套是暖白 + 陶土橙，边界和卡片都带一点米色而不是灰，
+ * 文字也不是纯黑而是暖褐。圆角偏大，观感比其它几个柔和。
+ *
+ * ⚠️ 主色用的是**深一档**的陶土橙 #a04a26，不是 Claude 官网那个
+ *    #d97757。理由只有一个：这个皮肤是**浅色**的，主色要当按钮底色和
+ *    用户气泡底色用，上面压的是白字。#d97757 配白字算出来是 3.0:1，
+ *    #c15f3c 也只有 4.23:1 —— 两个都够不着 4.5:1。
+ *    这正是 item 2 要修的那类问题（"看着是这个颜色，就是看不清"），
+ *    只不过换了个皮肤又长出来一次。tests/ui_v8/skins.py 会逐个皮肤
+ *    量这对配色，别再往浅里调。
+ * =========================================================================== */
+:root[data-skin="claude"] {
+  --bs-body-bg: #faf9f5;
+  --bs-body-bg-rgb: 250, 249, 245;
+  --bs-body-color: #2b2a27;
+  --bs-body-color-rgb: 43, 42, 39;
+  --bs-emphasis-color: #141413;
+  --bs-emphasis-color-rgb: 20, 20, 19;
+  --bs-heading-color: #141413;
+  --bs-secondary-color: #6f6b60;
+  --bs-secondary-color-rgb: 111, 107, 96;
+  --bs-secondary-bg: #f0eee6;
+  --bs-secondary-bg-rgb: 240, 238, 230;
+  --bs-tertiary-bg: #f5f3ec;
+  --bs-tertiary-bg-rgb: 245, 243, 236;
+  --bs-border-color: #e3e0d6;
+  --bs-border-color-translucent: rgba(43, 42, 39, .12);
+
+  --bs-primary: #a04a26;
+  --bs-primary-rgb: 160, 74, 38;
+  --bs-primary-bg-subtle: #f8e6de;
+  --bs-primary-border-subtle: #eec8b8;
+  --bs-primary-text-emphasis: #7a3520;
+
+  --bs-secondary: #6f6b60;
+  --bs-secondary-rgb: 111, 107, 96;
+  --bs-secondary-bg-subtle: #eeebe2;
+  --bs-secondary-border-subtle: #ddd9cd;
+  --bs-secondary-text-emphasis: #3d3a33;
+
+  --bs-success: #3f7d4e;
+  --bs-success-rgb: 63, 125, 78;
+  --bs-success-bg-subtle: #e3f0e5;
+  --bs-success-border-subtle: #c2ddc7;
+  --bs-success-text-emphasis: #1f4a2a;
+
+  --bs-info: #3a6ea8;
+  --bs-info-rgb: 58, 110, 168;
+  --bs-info-bg-subtle: #e3ecf6;
+  --bs-info-border-subtle: #c2d6ea;
+  --bs-info-text-emphasis: #1d3f63;
+
+  --bs-warning: #9a6b1f;
+  --bs-warning-rgb: 154, 107, 31;
+  --bs-warning-bg-subtle: #f8eed9;
+  --bs-warning-border-subtle: #ecd9b0;
+  --bs-warning-text-emphasis: #5a3d0f;
+
+  --bs-danger: #b3382f;
+  --bs-danger-rgb: 179, 56, 47;
+  --bs-danger-bg-subtle: #f8e2e0;
+  --bs-danger-border-subtle: #eec1bd;
+  --bs-danger-text-emphasis: #6d1e18;
+
+  --bs-link-color: #a04a2c;
+  --bs-link-color-rgb: 160, 74, 44;
+  --bs-link-hover-color: #7a3520;
+  --bs-link-hover-color-rgb: 122, 53, 32;
+
+  --bs-highlight-bg: #f8eed9;
+  --bs-code-color: #b3382f;
+
+  --dsapp-rail-bg: #f2efe7;
+  --dsapp-on-primary: #ffffff;
+  --dsapp-user-bg: #a04a26;
+  --dsapp-user-fg: #ffffff;
+  --dsapp-flash-bg: rgba(160, 74, 38, .18);
+  --dsapp-code-bg: #f5f3ec;
+  --dsapp-shadow: 0 8px 24px rgba(43, 42, 39, .1);
+  --dsapp-radius: 10px;
+  --dsapp-radius-lg: 1.1rem;
+}
+
+/* ===========================================================================
+ * Apple
+ * ===========================================================================
+ * apple.com 那套：近白的冷灰底、纯白卡片、苹果蓝 #0071e3，圆角大、
+ * 阴影极淡、几乎不用边框（靠色阶分层）。
+ * =========================================================================== */
+:root[data-skin="apple"] {
+  --bs-body-bg: #f5f5f7;
+  --bs-body-bg-rgb: 245, 245, 247;
+  --bs-body-color: #1d1d1f;
+  --bs-body-color-rgb: 29, 29, 31;
+  --bs-emphasis-color: #000000;
+  --bs-emphasis-color-rgb: 0, 0, 0;
+  --bs-heading-color: #1d1d1f;
+  --bs-secondary-color: #6e6e73;
+  --bs-secondary-color-rgb: 110, 110, 115;
+  --bs-secondary-bg: #ececee;
+  --bs-secondary-bg-rgb: 236, 236, 238;
+  --bs-tertiary-bg: #fbfbfd;
+  --bs-tertiary-bg-rgb: 251, 251, 253;
+  --bs-border-color: #d2d2d7;
+  --bs-border-color-translucent: rgba(0, 0, 0, .1);
+
+  --bs-primary: #0071e3;
+  --bs-primary-rgb: 0, 113, 227;
+  --bs-primary-bg-subtle: #e1efff;
+  --bs-primary-border-subtle: #b8d8fb;
+  --bs-primary-text-emphasis: #003c7d;
+
+  --bs-secondary: #6e6e73;
+  --bs-secondary-rgb: 110, 110, 115;
+  --bs-secondary-bg-subtle: #ececee;
+  --bs-secondary-border-subtle: #d2d2d7;
+  --bs-secondary-text-emphasis: #3a3a3c;
+
+  --bs-success: #008a3e;
+  --bs-success-rgb: 0, 138, 62;
+  --bs-success-bg-subtle: #e0f5e6;
+  --bs-success-border-subtle: #b3e3c4;
+  --bs-success-text-emphasis: #00461f;
+
+  --bs-info: #0071e3;
+  --bs-info-rgb: 0, 113, 227;
+  --bs-info-bg-subtle: #e1efff;
+  --bs-info-border-subtle: #b8d8fb;
+  --bs-info-text-emphasis: #003c7d;
+
+  --bs-warning: #a86400;
+  --bs-warning-rgb: 168, 100, 0;
+  --bs-warning-bg-subtle: #fdf0d9;
+  --bs-warning-border-subtle: #f0d9a8;
+  --bs-warning-text-emphasis: #5c3700;
+
+  --bs-danger: #d70015;
+  --bs-danger-rgb: 215, 0, 21;
+  --bs-danger-bg-subtle: #ffe5e7;
+  --bs-danger-border-subtle: #ffc2c7;
+  --bs-danger-text-emphasis: #7a000c;
+
+  --bs-link-color: #0066cc;
+  --bs-link-color-rgb: 0, 102, 204;
+  --bs-link-hover-color: #004c99;
+  --bs-link-hover-color-rgb: 0, 76, 153;
+
+  --bs-highlight-bg: #fdf0d9;
+  --bs-code-color: #d70015;
+
+  --dsapp-rail-bg: #fbfbfd;
+  --dsapp-on-primary: #ffffff;
+  --dsapp-user-bg: #0071e3;
+  --dsapp-user-fg: #ffffff;
+  --dsapp-flash-bg: rgba(0, 113, 227, .16);
+  --dsapp-code-bg: #fbfbfd;
+  --dsapp-shadow: 0 10px 30px rgba(0, 0, 0, .08);
+  --dsapp-radius: 12px;
+  --dsapp-radius-lg: 1.15rem;
+}
+
+/* ===========================================================================
+ * 下面这些覆盖**与皮肤无关**，所有皮肤共用
+ * ===========================================================================
+ * 起因都一样：bslib 把主题色编译成了字面量，光换 --bs-* 变量换不动它们。
+ * 每条前面 `html[data-skin]` 是为了压过任何加载顺序（见文件头）。
+ * =========================================================================== */
+
+/* Bootstrap 的按钮是把颜色编译进 --bs-btn-* 的，不跟着 --bs-primary 走。
+ * 不重绑的话，换了皮肤按钮还是原来那个绿。 */
+html[data-skin] .btn-primary {
+  --bs-btn-bg: var(--bs-primary);
+  --bs-btn-border-color: var(--bs-primary);
+  --bs-btn-hover-bg: var(--bs-primary-text-emphasis);
+  --bs-btn-hover-border-color: var(--bs-primary-text-emphasis);
+  --bs-btn-active-bg: var(--bs-primary-text-emphasis);
+  --bs-btn-active-border-color: var(--bs-primary-text-emphasis);
+  --bs-btn-disabled-bg: var(--bs-primary);
+  --bs-btn-disabled-border-color: var(--bs-primary);
+  --bs-btn-focus-shadow-rgb: var(--bs-primary-rgb);
+  color: var(--dsapp-on-primary);
+}
+html[data-skin] .btn-outline-primary {
+  --bs-btn-color: var(--bs-primary);
+  --bs-btn-border-color: var(--bs-primary);
+  --bs-btn-hover-bg: var(--bs-primary);
+  --bs-btn-hover-border-color: var(--bs-primary);
+  --bs-btn-hover-color: var(--dsapp-on-primary);
+  --bs-btn-active-bg: var(--bs-primary);
+  --bs-btn-active-border-color: var(--bs-primary);
+  --bs-btn-active-color: var(--dsapp-on-primary);
+  --bs-btn-focus-shadow-rgb: var(--bs-primary-rgb);
+}
+
+/* ★ 其余几个 outline 变体（V9 item 10）。
+ *
+ * 原来只重绑了 primary，剩下的都是 Bootstrap 编译期算出来的**字面量**
+ * —— 那些字面量是按 bslib 那份（深色）主题算的，浅色皮肤下就成了
+ * 「浅底 + 深色主题里的浅灰字」。实测 light/claude/apple 三个皮肤上
+ * 「停止」按钮只有 2.8~3.1:1，而它在界面上是个**要人点的按钮**，
+ * 看不清就等于点不到。
+ *
+ * outline 的本质是"底色跟着页面走、颜色由 --bs-{variant} 决定"，
+ * 所以三件事都要跟着皮肤：字色、边框色、hover 时的底+字。
+ * 用 --dsapp-on-primary 当 hover 字色，是因为那正是"压在这个变体色上
+ * 该用的反差色"——深色皮肤给深色、浅色皮肤给白色（见各皮肤的取值）。 */
+html[data-skin] .btn-outline-secondary {
+  --bs-btn-color: var(--bs-secondary);
+  --bs-btn-border-color: var(--bs-secondary);
+  --bs-btn-hover-bg: var(--bs-secondary);
+  --bs-btn-hover-border-color: var(--bs-secondary);
+  /* 次要色是个**中性灰**，浅色皮肤下它偏暗（#59636e）、深色下偏亮
+     （#8b949e），两种情况都该配页面底色当字色，而不是配 on-primary。 */
+  --bs-btn-hover-color: var(--bs-body-bg);
+  --bs-btn-active-bg: var(--bs-secondary);
+  --bs-btn-active-border-color: var(--bs-secondary);
+  --bs-btn-active-color: var(--bs-body-bg);
+  --bs-btn-disabled-color: var(--bs-secondary);
+  --bs-btn-disabled-border-color: var(--bs-secondary);
+}
+html[data-skin] .btn-outline-success {
+  --bs-btn-color: var(--bs-success);
+  --bs-btn-border-color: var(--bs-success);
+  --bs-btn-hover-bg: var(--bs-success);
+  --bs-btn-hover-border-color: var(--bs-success);
+  --bs-btn-hover-color: var(--dsapp-on-primary);
+  --bs-btn-active-bg: var(--bs-success);
+  --bs-btn-active-border-color: var(--bs-success);
+  --bs-btn-active-color: var(--dsapp-on-primary);
+  --bs-btn-disabled-color: var(--bs-success);
+  --bs-btn-disabled-border-color: var(--bs-success);
+}
+html[data-skin] .btn-outline-warning {
+  --bs-btn-color: var(--bs-warning);
+  --bs-btn-border-color: var(--bs-warning);
+  --bs-btn-hover-bg: var(--bs-warning);
+  --bs-btn-hover-border-color: var(--bs-warning);
+  --bs-btn-hover-color: var(--dsapp-on-primary);
+  --bs-btn-active-bg: var(--bs-warning);
+  --bs-btn-active-border-color: var(--bs-warning);
+  --bs-btn-active-color: var(--dsapp-on-primary);
+  --bs-btn-disabled-color: var(--bs-warning);
+  --bs-btn-disabled-border-color: var(--bs-warning);
+}
+html[data-skin] .btn-outline-danger {
+  --bs-btn-color: var(--bs-danger);
+  --bs-btn-border-color: var(--bs-danger);
+  --bs-btn-hover-bg: var(--bs-danger);
+  --bs-btn-hover-border-color: var(--bs-danger);
+  --bs-btn-hover-color: var(--dsapp-on-primary);
+  --bs-btn-active-bg: var(--bs-danger);
+  --bs-btn-active-border-color: var(--bs-danger);
+  --bs-btn-active-color: var(--dsapp-on-primary);
+  --bs-btn-disabled-color: var(--bs-danger);
+  --bs-btn-disabled-border-color: var(--bs-danger);
+}
+
+/* ★ .btn-default（V13 item 1）。和上面那一组是**同一个**病根，只是它不叫
+ * `btn-outline-*` 所以上一轮漏掉了。
+ *
+ * 它是 Shiny 的 fileInput 吐出来的那颗「选择文件」
+ * （`<span class="btn btn-default btn-file">`，见 R/mod_envs.R:381）。
+ * bslib 编译主题时把 `secondary = "#8b949e"`（我们在 app.R:523 给**深色**
+ * 主题定的值）烤成了字面量：
+ *
+ *     .btn-default:not(.btn-primary, …) {
+ *       --bs-btn-color: #8B949E; --bs-btn-border-color: #8B949E; … }
+ *
+ * 深色底下 #8b949e 没问题，浅色底下就是浅灰字压浅底 —— 实测 claude
+ * 2.92:1、apple 2.82:1（都是 tests/ui_v13/contrast.py 量出来的）。
+ *
+ * ⚠️ 只重绑 --bs-btn-*，**不要**直接写 color。文件页那颗上传按钮是
+ *    `.dsapp-dropzone .btn-file { color: #fff; background: var(--bs-primary) }`
+ *    （app.css:571），它靠直接写 color 压过 `.btn` 的
+ *    `color: var(--bs-btn-color)`。这里要是也直接写 color，选择器权重
+ *    更高（0,2,1 > 0,2,0），会把那颗主按钮的白字一起改掉。
+ *
+ * ⚠️ 选择器写的是 `.btn.btn-default`（0,3,1）而不是 `.btn-default`（0,2,1）：
+ *    bslib 还有一条 `[data-bs-theme="dark"] .btn-default:not(…)`（0,3,0），
+ *    在 app.R 那套深色主题下它是生效的。少写一个 .btn 就压不过它。 */
+html[data-skin] .btn.btn-default {
+  --bs-btn-color: var(--bs-secondary-text-emphasis);
+  --bs-btn-border-color: var(--bs-secondary-color);
+  --bs-btn-hover-color: var(--bs-body-color);
+  --bs-btn-hover-bg: var(--bs-secondary-bg);
+  --bs-btn-hover-border-color: var(--bs-secondary-color);
+  --bs-btn-active-color: var(--bs-body-color);
+  --bs-btn-active-bg: var(--bs-tertiary-bg);
+  --bs-btn-active-border-color: var(--bs-secondary-color);
+  --bs-btn-disabled-color: var(--bs-secondary-color);
+  --bs-btn-disabled-border-color: var(--bs-border-color);
+}
+
+/* 页脚（V9 item 10）。codex.css 里它是**写死的** #010409（近黑），
+   而字色是 `var(--bs-body-color)` —— 浅色皮肤下就是"黑底黑字"，
+   实测 light/claude/apple 上只有 1.2~1.4:1，版本号和客服微信整个看不见。
+   页脚和左栏是同一类东西（都是常驻的界面外壳），所以用同一个变量。 */
+html[data-skin] .dsapp-footer {
+  background: var(--dsapp-rail-bg);
+  border-top-color: var(--bs-border-color);
+}
+
+/* ★★ selectize 的下拉框（V9 item 10）—— 用户的原话是「言出法随页面的
+ * 分析环境选择字就看不清」。
+ *
+ * 病根是**一对半**变量：selectize 那段 CSS 编译出来是
+ *     .selectize-input { color: RGBA(var(--bs-emphasis-color-rgb, 0,0,0), .83);
+ *                        background: var(--bs-body-bg); }
+ * 也就是说**字色取 --bs-emphasis-color-rgb，底色取 --bs-body-bg**。
+ * 而 Bootstrap 那份 `:root` 里的 -rgb 变量是**编译期**从 bslib 主题算出来的
+ * 字面量，皮肤换不掉 —— 更要命的是 bslib 的深色主题把黑白反着编译
+ * （实测：--bs-black = #E6EDF3、--bs-white = #0D1117），于是
+ * --bs-body-bg-rgb 存的是**前景**色、--bs-emphasis-color-rgb 存的是**背景**色。
+ * 结果就是浅色皮肤（light / claude / apple）下：白底 + 白字。
+ *
+ * 两层修，缺一不可：
+ *   1. 每个皮肤块里把 --bs-*-rgb 成对补齐（上面已加），这是治本 ——
+ *      所有依赖这些变量做 rgba() 的地方（不止 selectize）都跟着对；
+ *   2. 这里再显式钉一遍 selectize，不依赖第 1 条。因为它坏掉的方式太安静了：
+ *      控件还在、还能选，只是看不见 —— 用户在"环境选择"上点了个空。
+ *
+ * ⚠️ 别把这段改成只写 color。selectize 的下拉层和选中项是两套元素
+ *    （.selectize-input / .selectize-dropdown），只治一个的话，选完还是白字。 */
+html[data-skin] .selectize-input,
+html[data-skin] .selectize-input input,
+html[data-skin] .selectize-dropdown,
+html[data-skin] .selectize-dropdown .option {
+  color: var(--bs-body-color);
+}
+html[data-skin] .selectize-input {
+  background: var(--bs-body-bg);
+  border-color: var(--bs-border-color);
+}
+html[data-skin] .selectize-input.focus,
+html[data-skin] .selectize-input.dropdown-active {
+  border-color: var(--bs-primary);
+  box-shadow: 0 0 0 .2rem rgba(var(--bs-primary-rgb), .25);
+}
+html[data-skin] .selectize-dropdown {
+  background: var(--bs-body-bg);
+  border-color: var(--bs-border-color);
+}
+/* 高亮项：底色用主色、字色用「压在主色上的那个色」。深色皮肤的
+   --dsapp-on-primary 是深绿，浅色皮肤是白 —— 正好是各自该有的反差。 */
+html[data-skin] .selectize-dropdown .active,
+html[data-skin] .selectize-dropdown .option:hover {
+  background: var(--bs-primary);
+  color: var(--dsapp-on-primary);
+}
+/* 占位文字和"没有匹配项"那行：用次要色，但必须是**当前皮肤的**次要色 */
+html[data-skin] .selectize-input .item,
+html[data-skin] .selectize-dropdown .optgroup-header,
+html[data-skin] .selectize-dropdown .no-results {
+  color: var(--bs-secondary-color);
+}
+
+/* 左栏。原来这三处的底色是 .dsapp-rail 自己写 var(--bs-tertiary-bg)，
+   深色下和主区几乎同色、分不开，所以这里按皮肤给。 */
+html[data-skin] .dsapp-rail { background: var(--dsapp-rail-bg); }
+html[data-skin] .dsapp-rail-logo { color: var(--dsapp-on-primary); }
+html[data-skin] .dsapp-rail-link.active {
+  background: var(--bs-primary-bg-subtle);
+  color: var(--bs-primary-text-emphasis);
+}
+
+/* 用户消息气泡（V8 item 2）。这是本次改动里**唯一**一处用户直接指着说
+   看不清的地方，所以两边都成对写死，不留给继承去猜。 */
+html[data-skin] .dsapp-msg-user .dsapp-bubble {
+  background: var(--dsapp-user-bg);
+  color: var(--dsapp-user-fg);
+}
+
+/* ★★ 代码 / 终端 / 报错这几块底（V13 item 1）。
+ *
+ * 用户的原话：「claude风格下，报错解读和代码都是黑底黑字」。
+ *
+ * 病根在 www/codex.css：V6 那时候全站只有深色一套皮，那里给
+ *
+ *     pre.dsapp-code, pre.dsapp-preview-pre, pre.dsapp-pre-err,
+ *     .dsapp-log, .dsapp-tool-body pre { background: #010409 }
+ *
+ * 写死了一个**近黑**的底。V8 加了 light / claude / apple 三套浅色皮之后
+ * 这个底还在，而字色是继承来的 `--bs-body-color`（claude 下 #2b2a27）
+ * —— 近黑的底配近黑的字。CSS 语法完全合法、控制台一声不吭，只有肉眼
+ * 看得见，所以这类问题只能靠**量对比度**发现（tests/ui_v13/contrast.py）。
+ *
+ * ⚠️ 这里列的是**元素本身**，不是后代。codex.css 原来写的
+ *    `.dsapp-tool-body pre` 是个**空选择器** —— 翻 R/mod_chat.R:1474 和
+ *    :3068 就知道，执行结果那个 <pre> 自己就带着 dsapp-tool-body 这个类，
+ *    里面没有嵌套的 pre。写后代选择器等于一条规则都没生效，而"没生效"在
+ *    界面上看不出来（那一块本来就有底色），所以它一直没被发现。
+ *
+ * ⚠️ 只改 background，不动 color：`pre.dsapp-pre-err` 的字色是
+ *    `--bs-danger-text-emphasis`（红字），它和这里的 code-bg 配在一起正是
+ *    "报错该有的样子"。要是把 color 也一起接管了，报错就和普通代码块
+ *    长得一模一样了。 */
+html[data-skin] pre.dsapp-code,
+html[data-skin] pre.dsapp-pre,
+html[data-skin] pre.dsapp-preview-pre,
+html[data-skin] .dsapp-log,
+html[data-skin] .dsapp-envlog {
+  background: var(--dsapp-code-bg);
+}
+
+/* 滚动条（V13 item 1 起跟着皮肤走；V13.8 item 7 换了颜色档位）。
+ *
+ * ⚠️⚠️ 颜色从 `--bs-secondary-bg` 改成了 `--bs-secondary-color`，这是
+ *      item 7「真正的滚动模块显示的不太明显」的**根因**，不是审美调整：
+ *      各皮肤给 `--bs-secondary-bg` 取的值（#21262d / #eef1f4 / #2f2f2f /
+ *      #f0eee6）**就是页面底色本身** —— 等于把滑块涂成背景色，它当然看不见。
+ *      `--bs-secondary-color` 是同一套皮肤里的中等对比度前景色
+ *      （#9aa4b2 / #59636e / #a8a8a8 / #6f6b60），在各自的底色上都读得出来。
+ *
+ * ⚠️ 用 `background-color` 而**不是** `background` 简写：简写会把
+ *     background-clip 重置成 border-box，把 app.css 里
+ *     「border: 3px solid transparent + background-clip: padding-box」
+ *     做出来的"细滑块、宽热区"当场毁掉（滑块胖回 12px）。
+ *
+ * ⚠️ 这一段的优先级**高于** app.css 里那条 `html[data-skin] *`，所以
+ *     改颜色只改这一处就够；但也意味着这里留一条旧的就会盖掉新的。 */
+
+/* 卡片/弹窗的圆角和阴影跟着皮肤走。Bootstrap 是靠 --bs-border-radius
+   这类变量已经能覆盖大部分，剩下这几处是 bslib 组件自己写死的。 */
+html[data-skin] .card,
+html[data-skin] .modal-content,
+html[data-skin] .dropdown-menu { border-radius: var(--dsapp-radius-lg); }
+html[data-skin] .modal-content { box-shadow: var(--dsapp-shadow); }
+
+html[data-skin] .form-control,
+html[data-skin] .form-select { border-radius: var(--dsapp-radius); }
+
+/* 产物名/代码一律等宽，且跟着皮肤的圆角走。 */
+html[data-skin] .dsapp-wsrow-name,
+html[data-skin] .dsapp-taskart-name { font-family: var(--dsapp-font-mono); }
+
+/* ===========================================================================
+ * 设置页的皮肤选择卡
+ * ===========================================================================
+ * 结构是 Shiny 原生的 radioButtons（见 R/skins.R 的 dsapp_skin_picker），
+ * 这里只负责把它画成卡片 —— 于是键盘可达、断线恢复、服务端读一个字符串
+ * 这些好处全都保留。
+ *
+ * ⚠️ 选择器写的是 Shiny **实际吐出来的**结构，不是 Bootstrap 的 .form-check：
+ *      <label class="radio-inline"><input type="radio"><span>…卡片…</span></label>
+ *    （2026-09-15 在 8898 上 dump DOM 确认过。Shiny 1.10 的 radioButtons
+ *    即便在 bslib 主题下也走这套老 markup，没有 form-check。）
+ *    照 Bootstrap 的类名写会**一条都不匹配**，而表现是"卡片完全没样式"，
+ *    不是报错 —— 第一版就是这么写错的，别再照着 BS 文档猜。
+ *    input 是 span 的**紧邻前一个兄弟**，所以下面用 `input:checked + span`，
+ *    不需要 :has()。
+ *
+ * ⚠️ 这段**不能**加 `html[data-skin]` 前缀。不是漏了：卡片上那四个色块是
+ *    内联 style，要预览的是**被选的那个皮肤**的颜色，不是当前皮肤的颜色。
+ *    加了前缀只会让这段样式变成当前皮肤独有的，切到别的皮肤就整个失效。
+ *
+ * ⚠️ 隐藏原生 radio 用的是 opacity + 定位，**不是 display:none**。
+ *    display:none 的 input 在部分浏览器里拿不到焦点，键盘就用不了了，
+ *    而那正是选原生 radio 而不是自己拼 div 的全部理由。
+ * ------------------------------------------------------------------------- */
+.dsapp-skinpick .shiny-options-group {
+  display: flex; flex-wrap: wrap; gap: .6rem;
+}
+.dsapp-skinpick label.radio-inline {
+  position: relative; display: block;
+  margin: 0; padding: 0; cursor: pointer; font-weight: 400;
+}
+.dsapp-skinpick label.radio-inline input[type="radio"] {
+  position: absolute; top: .55rem; left: .55rem;
+  margin: 0; opacity: 0; width: 1px; height: 1px;
+}
+.dsapp-skin-card {
+  display: flex; flex-direction: column; gap: .3rem;
+  min-width: 8.5rem; padding: .55rem .7rem;
+  border: 2px solid var(--bs-border-color);
+  border-radius: var(--dsapp-radius-lg);
+  background: var(--bs-tertiary-bg);
+  transition: border-color .12s, box-shadow .12s, transform .12s;
+}
+.dsapp-skinpick label.radio-inline:hover .dsapp-skin-card {
+  border-color: var(--bs-primary);
+  transform: translateY(-1px);
+}
+/* 选中态：input 是 span 的紧邻前兄弟（见上面那段 dump 出来的结构）。 */
+.dsapp-skinpick input[type="radio"]:checked + span .dsapp-skin-card {
+  border-color: var(--bs-primary);
+  box-shadow: 0 0 0 3px var(--bs-primary-bg-subtle);
+}
+/* 键盘焦点也要看得见 —— 否则 Tab 进来完全不知道停在哪张卡上。 */
+.dsapp-skinpick input[type="radio"]:focus-visible + span .dsapp-skin-card {
+  outline: 2px solid var(--bs-primary);
+  outline-offset: 2px;
+}
+.dsapp-skin-chips { display: flex; gap: .25rem; }
+.dsapp-skin-chips i {
+  display: block; width: 1.15rem; height: 1.15rem;
+  border-radius: 50%; border: 1px solid rgba(128, 128, 128, .35);
+}
+.dsapp-skin-name { font-weight: 600; font-size: .9rem; }
+.dsapp-skin-hint { font-size: .74rem; color: var(--bs-secondary-color); line-height: 1.3; }
