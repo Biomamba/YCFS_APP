@@ -390,6 +390,16 @@ sha256_from_output <- function(out) {
   #   ② 否则按空白切，取第一个 64 位串
   #      （shasum/sha256sum 是 "<哈希>␣␣<文件名>"；PowerShell 的 Get-FileHash
   #        打印的就是光秃秃一行 64 位）。
+  #   ③ 切出来的串如果正好是 `\` + 64 位，把那个 `\` 摘掉再认（见下）。
+  #
+  # ⚠️ 规则③ 是 GNU coreutils 的**转义前缀**：文件名里含反斜杠时，它会给整行
+  #    前缀一个 `\`，并把文件名里的反斜杠写成 `\\`。Windows 上每个 temp 路径都是
+  #    `C:\Users\…` ⇒ 那边**每一次**都带这个前缀。实测（本机 /tmp）：
+  #        sha256sum 'a\b.txt'  →  \<64 位十六进制>␣␣a\\b.txt
+  #    没有规则③ 的话这一行整个认不出来 ⇒ 落回 NULL ⇒ 上层当成"这台机器没有
+  #    校验工具" ⇒ **跳过校验**，也就是这段代码存在的意义当场消失。
+  #    （2026-10-07 第 6 次 CI：Windows 那条红先暴露的是测试里的对照值，但同一段
+  #      输出它自己也认不出来 —— 两边一起修了。）
   #
   # ⚠️ 别图省事把**整段输出**拼起来再找 —— 第一版就是那样，结果被
   #    "SHA256 hash of file:"、"CertUtil: …" 这些说明行里的十六进制字母污染，
@@ -401,12 +411,17 @@ sha256_from_output <- function(out) {
   #    Windows 的 certutil 输出，而那条路在 Windows 上根本造不出来
   #    （`file.symlink("/bin/false")` 不存在；`Sys.which` 也不认没扩展名的假货）。
   #    拆开之后，"从输出里认哈希"这段**每个平台都测得到**，包括 Windows。
+  pick <- function(tok) {
+    if (startsWith(tok, "\\") && nchar(tok) == 65L) tok <- substring(tok, 2L)   # 规则③
+    if (grepl("^[0-9a-fA-F]{64}$", tok)) tolower(tok) else NULL
+  }
   for (ln in out) {
-    flat <- gsub("[[:space:]]", "", ln)
-    if (grepl("^[0-9a-fA-F]{64}$", flat)) return(tolower(flat))
-    tok <- grep("^[0-9a-fA-F]{64}$",
-                unlist(strsplit(ln, "[[:space:]]+")), value = TRUE)
-    if (length(tok)) return(tolower(tok[[1]]))
+    h <- pick(gsub("[[:space:]]", "", ln))          # 规则①
+    if (!is.null(h)) return(h)
+    for (tok in strsplit(ln, "[[:space:]]+")[[1]]) {  # 规则②（+③）
+      h <- pick(tok)
+      if (!is.null(h)) return(h)
+    }
   }
   NULL
 }

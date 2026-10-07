@@ -29,6 +29,32 @@ ok <- function(cond, what) {
   else { FAIL <<- FAIL + 1L; cat("  ✘ ", what, "  ← 红了\n", sep = "") }
 }
 
+# ---- 参考实现：这台机器上自己算一个 sha256（**独立于被测代码**）-------------
+#  ⚠️ 工具名不能写死：**macOS 上根本没有 sha256sum**（只有 Perl 的 shasum；
+#     Homebrew 的 coreutils 装了的话叫 gsha256sum），Windows 的 Rtools 里有
+#     sha256sum 但没有 shasum。第 6 次 CI 上 mac 那两个 job 就是死在这 ——
+#     `sh: sha256sum: command not found` → system2 抛错 → 整个脚本 Execution halted。
+#     所以先探到哪个用哪个；一个都没有就**硬红**（照本仓规矩：拿不到就跳过 =
+#     假绿，比红更坏）。
+sha_ref_args <- local({
+  if (nzchar(Sys.which("sha256sum")))       list("sha256sum", character(0))
+  else if (nzchar(Sys.which("shasum")))     list("shasum", c("-a", "256"))
+  else if (nzchar(Sys.which("gsha256sum"))) list("gsha256sum", character(0))
+  else stop("这台机器上 sha256sum / shasum / gsha256sum 一个都没有，" ,
+            "参考哈希算不出来 —— 不许把 [2] 静默跳过")
+})
+sha_ref_hash <- function(path) {
+  a <- sha_ref_args
+  raw <- suppressWarnings(system2(a[[1]], c(a[[2]], path), stdout = TRUE, stderr = FALSE))
+  if (!length(raw)) stop("调 ", a[[1]], " 拿不到输出：", path)
+  h <- sub("[[:space:]].*$", "", raw[[1]])
+  # GNU coreutils 在**文件名含反斜杠**时给整行加一个 `\` 前缀，
+  # 而 Windows 上每个 temp 路径都是 `C:\Users\…` ⇒ 那边每次都带。
+  # 实测：`sha256sum 'a\b.txt'` → `\<64hex>␣␣a\\b.txt`
+  if (startsWith(h, "\\")) h <- substring(h, 2L)
+  tolower(h)
+}
+
 # ---- 从 build_exe.R 里**结构化地**取出这两个真函数（不抄一份，免得测的是副本）
 HERE <- local({
   a <- grep("^--file=", commandArgs(FALSE), value = TRUE)
@@ -65,8 +91,9 @@ for (k in names(urls)) {
 # ---- 2. sha256_of：和 sha256sum 对一遍 --------------------------------------
 cat("\n[2] sha256_of()\n")
 f <- tempfile(); writeLines("hello 言出法随", f)
-ref <- sub("[[:space:]].*$", "", system2("sha256sum", f, stdout = TRUE))
-ok(identical(env$sha256_of(f), tolower(ref)), paste0("算出来的和 sha256sum 一致（", substr(ref,1,12), "…）"))
+ref <- sha_ref_hash(f)
+ok(identical(env$sha256_of(f), ref),
+   paste0("算出来的和 ", sha_ref_args[[1]], " 一致（", substr(ref,1,12), "…）"))
 ok(is.null(env$sha256_of(tempfile())), "文件不存在时返回 NULL（不炸）")
 
 # ⚠️ 下面这段是**集成**测法（真的换 PATH、真的 fork 子进程），只在
@@ -127,6 +154,10 @@ spaced <- paste(strsplit(UP, "(?<=..)", perl = TRUE)[[1]], collapse = " ")
 cases <- list(
   list(nm = "shasum / sha256sum",  out = c(paste0(H, "  dsapp.zip")),                    want = H),
   list(nm = "sha256sum 二进制标记", out = c(paste0(H, " *dsapp.zip")),                    want = H),
+  # ★ coreutils 的**转义前缀**：文件名含反斜杠时整行前缀一个 `\`，文件名里的
+  #   反斜杠写成 `\\`。Windows 上每个 temp 路径都是 C:\Users\… ⇒ 每次都带。
+  #   认不出来 = 落回 NULL = 上层当成"没工具" = **跳过校验**。
+  list(nm = "★coreutils 转义前缀",  out = c(paste0("\\", H, "  a\\\\b.txt")),             want = H),
   list(nm = "certutil 连写",        out = c("SHA256 hash of file dsapp.zip:", UP,
                                             "CertUtil: -hashfile command completed successfully."),
                                     want = H),
@@ -163,7 +194,7 @@ mkarc <- function(ver, plat, arch, exe, base = NULL) {
   unlink(out); old <- setwd(file.path(WORK, "src"))
   if (plat == "win") utils::zip(out, base, flags = "-rq") else utils::tar(out, base, tar = "tar")
   setwd(old)
-  h <- sub("[[:space:]].*$", "", system2("sha256sum", out, stdout = TRUE))
+  h <- sha_ref_hash(out)
   writeLines(sprintf("%s  %s", h, basename(out)), paste0(out, ".sha256"))
   cat(sprintf("  · %-44s %6d B\n", basename(out), file.size(out)))
   out
@@ -234,8 +265,7 @@ r <- tryCatch(seed("9.9.9", "mac", "arm64"), error = function(e) conditionMessag
 ok(is.character(r) && grepl("SHA-256 对不上", r), "抛错且说的是哈希对不上")
 ok(!dir.exists(shinyelectron:::r_install_path("9.9.9", "mac", "arm64")), "没有留下目录")
 # 还原边车
-h <- sub("[[:space:]].*$", "", system2("sha256sum", A_MAC, stdout = TRUE))
-writeLines(sprintf("%s  %s", h, basename(A_MAC)), paste0(A_MAC, ".sha256"))
+writeLines(sprintf("%s  %s", sha_ref_hash(A_MAC), basename(A_MAC)), paste0(A_MAC, ".sha256"))
 
 # ---- 10. 边车没了 ⇒ fail-open，但照样装上 ------------------------------------
 cat("\n[10] 边车取不到\n")
