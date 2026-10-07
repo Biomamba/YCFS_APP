@@ -383,22 +383,59 @@ say("便携 R 版本：%s（从写好的 _shinyelectron.yml 读回来核过）",
 #      ⚠️ 解压**用上游自己的 tar 程序**（extract_tar_program()）而不是
 #        utils::untar 的 internal —— 那份 mac 归档里全是符号链接，
 #        R 自带的 internal 实现不保证保留它们。
+sha256_from_output <- function(out) {
+  # 从一个 sha256 工具的 stdout 里认出那个哈希。**逐行**认，两种排版各一条规则：
+  #   ① 把整行的空白全去掉，正好 64 位十六进制 ⇒ 就是它
+  #      （certutil 有些版本打成 "AB CD EF …"，每字节一个空格）；
+  #   ② 否则按空白切，取第一个 64 位串
+  #      （shasum/sha256sum 是 "<哈希>␣␣<文件名>"；PowerShell 的 Get-FileHash
+  #        打印的就是光秃秃一行 64 位）。
+  #
+  # ⚠️ 别图省事把**整段输出**拼起来再找 —— 第一版就是那样，结果被
+  #    "SHA256 hash of file:"、"CertUtil: …" 这些说明行里的十六进制字母污染，
+  #    拼出来长度永远不是 64 ⇒ 找不到 ⇒ 上层当成"这台机器没工具"⇒ **跳过校验**。
+  #    那是这条路上最坏的失败形态：看着一切正常，实际上没校。
+  #    desktop/tests/seed_portable_r.R 里有专门盯这一条的假绿探针，别删。
+  #
+  # ⚠️ 单独拆成一个函数不是为了好看：`sha256_of` 要靠 shim PATH 才能造出
+  #    Windows 的 certutil 输出，而那条路在 Windows 上根本造不出来
+  #    （`file.symlink("/bin/false")` 不存在；`Sys.which` 也不认没扩展名的假货）。
+  #    拆开之后，"从输出里认哈希"这段**每个平台都测得到**，包括 Windows。
+  for (ln in out) {
+    flat <- gsub("[[:space:]]", "", ln)
+    if (grepl("^[0-9a-fA-F]{64}$", flat)) return(tolower(flat))
+    tok <- grep("^[0-9a-fA-F]{64}$",
+                unlist(strsplit(ln, "[[:space:]]+")), value = TRUE)
+    if (length(tok)) return(tolower(tok[[1]]))
+  }
+  NULL
+}
+
 sha256_of <- function(path) {
-  # 三选一，按顺序试第一个在这台机器上真的存在的。
-  # 认哈希的办法是"从输出里挑那个 64 位十六进制串"，不是按行/按列切 ——
-  # 三个工具的排版各不相同（certutil 还夹着中文/英文说明行）。
+  # 按顺序试，用第一个真的能算出哈希的工具。
+  #
+  # ⚠️ 认哈希的办法是"从输出里**找**那个 64 位十六进制串"，不是按行/按列切：
+  #    三个工具的排版各不相同（certutil 前后还夹着说明行）。
+  # ⚠️ 而且要兼容**每字节之间带空格**的排版（`AB CD EF …`）——有些版本的
+  #    certutil 就是这么打的。只按空白切成 token 的话，那种输出会一个 64 位
+  #    串都找不出来 ⇒ 静默降级成"这台机器上没有校验工具"⇒ **跳过校验**。
+  #    那是这条路上最坏的失败形态：看着一切正常，实际上没校。
+  #    所以下面除了"按空白切"，还把"把所有十六进制片段接起来"也算一个候选。
   arg <- if (.Platform$OS.type == "windows") shQuote(path) else path
+  ps  <- sprintf("(Get-FileHash -Algorithm SHA256 '%s').Hash", path)
   probes <- list(
-    list("shasum",    c("-a", "256", arg)),
-    list("sha256sum", c(arg)),
-    list("certutil",  c("-hashfile", arg, "SHA256"))
+    list("shasum",     c("-a", "256", arg)),
+    list("sha256sum",  c(arg)),
+    list("certutil",   c("-hashfile", arg, "SHA256")),
+    # Windows 上一定有 PowerShell；certutil 的输出格式在不同版本里变过，
+    # 留这一条做兜底（Get-FileHash 的输出是干净的 64 位十六进制）。
+    list("powershell", c("-NoProfile", "-NonInteractive", "-Command", ps))
   )
   for (p in probes) {
     if (!nzchar(Sys.which(p[[1]]))) next
     out <- suppressWarnings(system2(p[[1]], p[[2]], stdout = TRUE, stderr = FALSE))
-    tok <- unlist(strsplit(paste(out, collapse = " "), "[[:space:]]+"))
-    tok <- grep("^[0-9a-fA-F]{64}$", tok, value = TRUE)
-    if (length(tok)) return(tolower(tok[[1]]))
+    h <- sha256_from_output(out)
+    if (!is.null(h)) return(h)
   }
   NULL
 }

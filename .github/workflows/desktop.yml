@@ -165,6 +165,18 @@ jobs:
           # 上面那条链再断一次的话，这一行会直接把断点打出来
           Rscript --no-environ -e 'for (p in c("renv","rlang","withr")) cat(p, ":", requireNamespace(p, quietly=TRUE), " ")'; echo
 
+      # ★ 打包前先跑一遍 build_exe.R 里那两段逻辑的测试（本地假归档，不联网，
+      #   几秒钟）。为什么值这一步：seed_portable_r 存在的唯一理由就是绕开
+      #   shinyelectron 在 R 4.4.x 上"便携 R 校验必失败"那个 bug ——
+      #   **绕法失效的症状是这里再报一次那句看不懂的 checksum 错**，
+      #   而不是别的什么明显的东西，所以在下载 100 MB 之前先验一遍。
+      #   ⚠️ Windows 上尤其要看：sha256_of 最没把握的就是 certutil 的排版
+      #   （本机是 Linux，conda 那份 certutil 是 NSS 的，跟 Windows 自带的不
+      #   是一个程序；这一段是整套测试里唯一在 Windows 上有覆盖的地方）。
+      - name: 测预置便携 R 的逻辑（不联网）
+        shell: bash
+        run: Rscript --no-environ desktop/tests/seed_portable_r.R
+
       - name: 打包
         shell: bash
         run: Rscript --no-environ desktop/build_exe.R --plat=win --arch=x64 out
@@ -319,6 +331,10 @@ jobs:
       #    electron-builder 找不到 Developer ID 时不一定替我们 ad-hoc 签，
       #    所以自己来。正式的 Developer ID 签名 + 公证要 99 美元/年的账号，
       #    那是另一件事。
+      # ★ 同 win-exe：打包前先验 build_exe.R 里那两段逻辑（不联网，几秒钟）。
+      - name: 测预置便携 R 的逻辑（不联网）
+        run: Rscript --no-environ desktop/tests/seed_portable_r.R
+
       - name: 打包
         run: Rscript --no-environ desktop/build_exe.R --plat=mac --arch=${{ matrix.arch }} out
 
