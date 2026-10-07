@@ -37,7 +37,7 @@ die() { printf '\033[31m!! %s\033[0m\n' "$*" >&2; exit 1; }
 [ "$(uname -s)" = "Darwin" ] || die "这是 $(uname -s)，不是 macOS。sips/iconutil 只有 mac 上有。"
 command -v iconutil >/dev/null || die "找不到 iconutil（应该在 /usr/bin 里）。"
 command -v sips     >/dev/null || die "找不到 sips（应该在 /usr/bin 里）。"
-[ -f "$SRC" ] || die "没有 $SRC。它是源材料，应该跟着仓库走；缺了就从 data/logo/头像logo2026.09.jpg 重新生成一张 1024×1024 的。"
+[ -f "$SRC" ] || die "没有 ${SRC}。它是源材料，应该跟着仓库走；缺了就从 data/logo/头像logo2026.09.jpg 重新生成一张 1024×1024 的。"
 
 # sips 读出来的尺寸。⚠️ 必须是 1024，不是"够大就行" —— 见上面那段。
 W="$(sips -g pixelWidth  "$SRC" | awk '/pixelWidth/{print $2}')"

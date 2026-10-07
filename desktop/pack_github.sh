@@ -100,6 +100,11 @@ EX=(
   "--exclude=/.Rhistory" "--exclude=/.RData" "--exclude=/.Rproj.user"
   "--exclude=__pycache__/" "--exclude=*.pyc" "--exclude=*.log"
   "--exclude=/.DS_Store" "--exclude=Thumbs.db"
+  # ★ 2026-10-07 加的：改脚本时留下的**临时备份**被原样扛进树里了（7 个
+  #   `*.bak-20261007`，差点跟着推上公开仓库）。源目录里当时只有我自己的
+  #   这几个，没有别的文件匹配这些模式，所以排掉不会误伤。
+  "--exclude=*.bak" "--exclude=*.bak-*" "--exclude=*~"
+  "--exclude=*.orig" "--exclude=*.rej" "--exclude=*.swp"
 )
 
 echo "== 拷贝（白名单式排除，源目录不动）"
@@ -304,7 +309,7 @@ if command -v git >/dev/null 2>&1; then
     git config user.name  >/dev/null 2>&1 || git config user.name  "YCFS_APP"
     git config user.email >/dev/null 2>&1 || git config user.email "biomamba@biomamba.com.cn"
     git add -A
-    git -c commit.gpgsign=false commit -q -m "YCFS_APP $VER：言出法随生信分析 Agent（R Shiny）
+    git -c commit.gpgsign=false commit -q -m "YCFS_APP ${VER}：言出法随生信分析 Agent（R Shiny）
 
 首个公开版本。包含：
   · Shiny 版应用本体（app.R + R/ + www/ + skills_builtin/）

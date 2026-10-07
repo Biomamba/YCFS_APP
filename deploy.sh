@@ -51,7 +51,7 @@ if [ -L "$DEST" ] && [ "$(readlink -f "$DEST")" = "$SRC" ]; then
   echo "  这个脚本会 rsync 到自己、并 chown -R 整个开发目录，不能跑。"
   echo
   echo "  改代码 → 直接重启就行：sudo systemctl restart shiny-server"
-  echo "  真要退回 rsync 模式：先删掉软链（sudo rm $DEST），再跑本脚本。"
+  echo "  真要退回 rsync 模式：先删掉软链（sudo rm ${DEST}），再跑本脚本。"
   exit 1
 fi
 
@@ -285,7 +285,7 @@ if [ "$CODE" = "200" ]; then
   if [ "$SC" = "200" ] && printf '%s' "$SOCK" | grep -q '"websocket"'; then
     grn "  ✓ 应用的 R 进程活着（SockJS 有应答）"
   else
-    red "  ✗ 应用进程没有应答（HTTP $SC）—— 页面会是白板或一直转圈"
+    red "  ✗ 应用进程没有应答（HTTP ${SC}）—— 页面会是白板或一直转圈"
     echo "    排查：journalctl -u shiny-server -n 50"
     echo "          tail -50 /var/log/shiny-server/YCFS_APP-*.log"
   fi

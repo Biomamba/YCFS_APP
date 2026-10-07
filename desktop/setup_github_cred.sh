@@ -44,7 +44,10 @@ OWNER_REPO="Biomamba/YCFS_APP"
 TREE="${DSAPP_GIT_TREE:-$HOME/dsapp_build/github_YCFS_APP}"
 CRED="$HOME/.dsapp_gh_cred"
 
-say() { printf '\033[36m==\033[0m %s\n' "$*"; }
+# ⚠️ 写法有讲究：格式串必须是**第一个参数**，不能是 `"$*"`。
+#    写成 `printf '... %s\n' "$*"` 的话，调用处 `say "... %d 个字符" "${#TOKEN}"`
+#    会把 `%d` 当字面量打出来（2026-10-07 实际发生：用户看到 "token 长度 %d 个字符 40"）。
+say() { local f="$1"; shift; printf '\033[36m==\033[0m '; printf "$f" "$@"; printf '\n'; }
 ok()  { printf '\033[32m ✓\033[0m %s\n' "$*"; }
 bad() { printf '\033[31m ✗\033[0m %s\n' "$*" >&2; }
 die() { bad "$*"; exit 1; }
@@ -80,7 +83,7 @@ code="$(curl -sS -o /tmp/.dsapp_gh_user.json -w '%{http_code}' \
 if [ "$code" != "200" ]; then
   sed -n 's/.*"message"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/   GitHub 说：\1/p' \
       /tmp/.dsapp_gh_user.json 2>/dev/null || true
-  die "token 无效（HTTP $code）。是不是没过期、粘贴时少了字符？"
+  die "token 无效（HTTP ${code}）。是不是没过期、粘贴时少了字符？"
 fi
 LOGIN="$(sed -n 's/.*"login"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' /tmp/.dsapp_gh_user.json | head -1)"
 ok "token 有效，身份是 $LOGIN"
@@ -88,7 +91,7 @@ ok "token 有效，身份是 $LOGIN"
 code="$(curl -sS -o /tmp/.dsapp_gh_repo.json -w '%{http_code}' \
         -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" \
         "$API/repos/$OWNER_REPO" || echo 000)"
-[ "$code" = "200" ] || die "token 看不见 $OWNER_REPO（HTTP $code）。
+[ "$code" = "200" ] || die "token 看不见 ${OWNER_REPO}（HTTP ${code}）。
      fine-grained token 要在 Repository access 里勾上这个仓库。"
 ok "能看见 $OWNER_REPO"
 
@@ -105,17 +108,17 @@ fi
 umask 077
 printf 'https://%s:%s@github.com\n' "$LOGIN" "$TOKEN" > "$CRED"
 chmod 600 "$CRED"
-ok "写好 $CRED（chmod 600）"
+ok "写好 ${CRED}（chmod 600）"
 
 git config --global credential.helper "store --file=$CRED"
-ok "credential.helper → store --file=$CRED（--global）"
+ok "credential.helper → store --file=${CRED}（--global）"
 
 # ⚠️ 这里**故意不打印** `git config --global --list`：那会把整行凭据路径
 #    打出来（虽然没有 token 本身，但没必要）。
 
 # ---- 4. 走一遍真正的 git 认证 -------------------------------------------------
 if [ -d "$TREE/.git" ]; then
-  say "用真 git 试一次（$TREE）"
+  say "用真 git 试一次（${TREE}）"
   git -C "$TREE" remote set-url origin "https://github.com/$OWNER_REPO.git"
   if out="$(git -C "$TREE" ls-remote --heads origin 2>&1)"; then
     ok "git ls-remote 通了"

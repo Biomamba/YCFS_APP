@@ -283,12 +283,17 @@ res <- tryCatch(
     #    在浏览器里跑，而这个应用要读写文件系统、要起子进程跑 R/Python 任务，
     #    WASM 里一样都做不到。设错的症状是"打出来的包能打开、但一用就废"。
     runtime_strategy = "bundled",
-    platform         = "win",
-    arch             = "x64",
+    # ★ 这两个**必须**跟着 --plat/--arch 走。2026-10-07 第一次跑 CI 之前它们是
+    #   写死的 "win"/"x64" —— 解析、校验、preflight 都加好了，偏偏漏了把值接
+    #   到这里，于是两个 mac job 会拿到一份"去建 Windows 包"的指令。
+    #   ⚠️ 这类"参数解析对了但没接上"的漏，本地怎么读代码都看不出来，
+    #      因为每一段单独看都是对的。
+    platform         = PLAT,
+    arch             = ARCH,
     icon             = icon,
     overwrite        = TRUE,
     build            = TRUE,
-    run_after        = FALSE,   # 在 Linux 上没法"跑一下 Windows exe"
+    run_after        = FALSE,   # CI 上没人能"跑一下"刚生出来的东西
     open_after       = FALSE,
     verbose          = TRUE
   ),

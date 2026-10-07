@@ -88,7 +88,7 @@ say "输出：$OUT/$NAME.zip"
 
 # ---- 1. R 运行时 ------------------------------------------------------------
 if [ ! -f "$RZIP" ]; then
-  say "下载 Windows 版 R $RVER（约 110 MB，断了会续传）"
+  say "下载 Windows 版 R ${RVER}（约 110 MB，断了会续传）"
   # ⚠️ 不用 R 的 download.file()：它默认 60 秒超时，110 MB 在这条线上必超
   #    （第一次就是这么失败的，报的是 "Timeout of 60 seconds was reached"，
   #    看着像 GitHub 挂了）。
@@ -96,7 +96,7 @@ if [ ! -f "$RZIP" ]; then
 fi
 # ⚠️ 下了一半的 zip 也要能被发现。截断的 zip 解到一半才报错，那时已经
 #    建了一堆目录，看起来像"解压代码有问题"。
-unzip -tq "$RZIP" >/dev/null 2>&1 || die "R 运行时 zip 不完整（$RZIP），删掉重跑"
+unzip -tq "$RZIP" >/dev/null 2>&1 || die "R 运行时 zip 不完整（${RZIP}），删掉重跑"
 
 say "解压 R 运行时"
 rm -rf "$STAGE"
@@ -155,10 +155,10 @@ BUILD_RVER="$(Rscript --no-environ -e 'cat(paste0(R.version$major, ".", sub("\\.
 #    判据（那里有实测：4.4.2 打的字节码在 4.4.3 里跑，无警告、仍是 BCODESXP、
 #    结果一样）。卡到 patch 的话，打包机是 4.4.2、运行时是 4.4.3，这个包
 #    就永远打不出来 —— 而它们本来就能一起用。
-[ "$BUILD_RVER" = "${RVER%.*}" ] || die "打包用的 R 是 $BUILD_RVER，而包里的运行时是 $RVER（minor 不同）。
+[ "$BUILD_RVER" = "${RVER%.*}" ] || die "打包用的 R 是 ${BUILD_RVER}，而包里的运行时是 ${RVER}（minor 不同）。
    字节码跨 minor 版本不保证可用（对不上时 R 会退回解释执行，不一定报错）。
    换一个 ${RVER%.*}.x 的 Rscript 再打，或者把 DSAPP_RUNTIME_RVER 改成 $BUILD_RVER 并重新下运行时。"
-say "字节码化（app.R + R/*.R -> app.rds + lib.rds；打包机 R $BUILD_RVER，运行时 $RVER，同 minor）"
+say "字节码化（app.R + R/*.R -> app.rds + lib.rds；打包机 R ${BUILD_RVER}，运行时 ${RVER}，同 minor）"
 rm -f "$STAGE/app.rds" "$STAGE/lib.rds" "$STAGE/built_with_R.txt"
 Rscript --no-environ "$REPO/desktop/build_bytecode.R" "$REPO" "$STAGE"
 
@@ -319,7 +319,7 @@ newer="$(printf '%s\n' "$built_all" | Rscript --no-environ -e '
   cat(paste(sort(unique(v[numeric_version(v) > numeric_version(r)])), collapse = " "))' "$RVER")"
 dist="$(printf '%s\n' "$built_all" | grep -v '^$' | sort | uniq -c |
         awk '{printf "%s:%s ", $2, $1}')"
-chk "★ 没有包是**比运行时更新**的 R 编的（Built 分布：$dist）" "[ -z '$newer' ]"
+chk "★ 没有包是**比运行时更新**的 R 编的（Built 分布：${dist}）" "[ -z '$newer' ]"
 [ -z "$newer" ] || echo "   比 $RVER 新的：$newer"
 
 # ⚠️ V16.6 item 5：原来这里有一条"app.R 的 files 清单覆盖了每一个 R/*.R"
@@ -338,7 +338,7 @@ for f in "$REPO/R"/*.R; do
   #    脚本会在"一切正常"时退出。用 if 写，不留这个歧义。
   if [ -e "$STAGE/R/$b" ]; then miss="$miss $b"; fi
 done
-chk "★ 清单里的 R/*.R 一个都没混进包${miss:+（混进了：$miss）}" "[ -z '$miss' ]"
+chk "★ 清单里的 R/*.R 一个都没混进包${miss:+（混进了：${miss}）}" "[ -z '$miss' ]"
 # ⚠️ readRDS 一条就够：lib.rds 是 xz 压的，截断/半截的包在这里就会炸，
 #    而不是等到用户双击时。它顺便证明了这个 rds 是**这个 R** 写得出的。
 chk "★ lib.rds 能被读回来，且里面有几百个对象" \

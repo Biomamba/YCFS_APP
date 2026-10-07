@@ -72,17 +72,17 @@ say() { printf '\033[36m==\033[0m %s\n' "$*"; }
 die() { printf '\033[31m!! %s\033[0m\n' "$*" >&2; exit 1; }
 
 mkdir -p "$DL"
-say "输出：$OUT/$NAME.zip（架构 $ARCH）"
+say "输出：$OUT/$NAME.zip（架构 ${ARCH}）"
 
 # ---- 1. R 运行时 ------------------------------------------------------------
 if [ ! -f "$RTGZ" ]; then
-  say "下载 macOS 版 R $RVER（$ARCH，约 82 MB，断了会续传）"
+  say "下载 macOS 版 R ${RVER}（${ARCH}，约 82 MB，断了会续传）"
   # ⚠️ 和 Windows 那份同理：不用 R 的 download.file()，它默认 60 秒超时。
   curl -L --retry 5 -C - -o "$RTGZ" "$URL"
 fi
 # ⚠️ 下了一半的 tar.gz 也要能被发现。截断的包解到一半才报错，那时已经
 #    建了一堆目录，看起来像"解压代码有问题"。
-gzip -t "$RTGZ" 2>/dev/null || die "R 运行时压缩包不完整（$RTGZ），删掉重跑"
+gzip -t "$RTGZ" 2>/dev/null || die "R 运行时压缩包不完整（${RTGZ}），删掉重跑"
 
 say "解压 R 运行时"
 rm -rf "$STAGE"
@@ -135,10 +135,10 @@ say "复制应用文件"
 BUILD_RVER="$(Rscript --no-environ -e 'cat(paste0(R.version$major, ".", sub("\\..*$", "", R.version$minor)))')"
 # ⚠️ 比到 **minor**，不比 patch —— 和 desktop/bytecode_app.R 里那道闸门同一个
 #    判据（那里有实测：4.4.2 打的字节码在 4.4.3 里跑，无警告、仍是 BCODESXP）。
-[ "$BUILD_RVER" = "${RVER%.*}" ] || die "打包用的 R 是 $BUILD_RVER，而包里的运行时是 $RVER（minor 不同）。
+[ "$BUILD_RVER" = "${RVER%.*}" ] || die "打包用的 R 是 ${BUILD_RVER}，而包里的运行时是 ${RVER}（minor 不同）。
    字节码跨 minor 版本不保证可用（对不上时 R 会退回解释执行，不一定报错）。
    换一个 ${RVER%.*}.x 的 Rscript 再打。"
-say "字节码化（app.R + R/*.R -> app.rds + lib.rds；打包机 R $BUILD_RVER，运行时 $RVER，同 minor）"
+say "字节码化（app.R + R/*.R -> app.rds + lib.rds；打包机 R ${BUILD_RVER}，运行时 ${RVER}，同 minor）"
 rm -f "$STAGE/app.rds" "$STAGE/lib.rds" "$STAGE/built_with_R.txt"
 Rscript --no-environ "$REPO/desktop/build_bytecode.R" "$REPO" "$STAGE"
 
@@ -258,7 +258,7 @@ newer="$(printf '%s\n' "$built_all" | Rscript --no-environ -e '
   cat(paste(sort(unique(v[numeric_version(v) > numeric_version(r)])), collapse = " "))' "$RVER")"
 dist="$(printf '%s\n' "$built_all" | grep -v '^$' | sort | uniq -c |
         awk '{printf "%s:%s ", $2, $1}')"
-chk "★ 没有包是**比运行时更新**的 R 编的（Built 分布：$dist）" "[ -z '$newer' ]"
+chk "★ 没有包是**比运行时更新**的 R 编的（Built 分布：${dist}）" "[ -z '$newer' ]"
 [ -z "$newer" ] || echo "   比 $RVER 新的：$newer"
 
 # ⚠️ 交叉检查：仓库里每个 R/*.R 都不能混进包（"清单和 rds 对得上"那条已经
@@ -270,7 +270,7 @@ for f in "$REPO/R"/*.R; do
   #    一条命令，条件不成立（也就是**正常**情况）时整个列表返回非零。
   if [ -e "$STAGE/R/$b" ]; then miss="$miss $b"; fi
 done
-chk "★ 清单里的 R/*.R 一个都没混进包${miss:+（混进了：$miss）}" "[ -z '$miss' ]"
+chk "★ 清单里的 R/*.R 一个都没混进包${miss:+（混进了：${miss}）}" "[ -z '$miss' ]"
 
 chk "★ run_local.R 找运行时的路径和实际布局对得上" \
     "[ -f \"\$(dirname '$STAGE/run_local.R')/runtime/R/bin/Rscript\" ]"
@@ -302,7 +302,7 @@ vchk "解出来的 Rscript 仍然可执行"  "[ -x '$VERIFY/$NAME/runtime/R/bin/
 #    所以底下再用 `-type l` 数一次，两次一起看才作数。
 n_link_stage="$(find "$STAGE" -type l | wc -l)"
 n_link_unzip="$(find "$VERIFY/$NAME" -type l | wc -l)"
-vchk "符号链接数量没变（打包前 $n_link_stage，解开后 $n_link_unzip）" \
+vchk "符号链接数量没变（打包前 ${n_link_stage}，解开后 ${n_link_unzip}）" \
     "[ '$n_link_stage' -eq '$n_link_unzip' ]"
 vchk "解出来的 lib.rds 读得动" \
     "Rscript --no-environ -e 'quit(status = if (length(readRDS(\"$VERIFY/$NAME/lib.rds\")) > 200) 0 else 1)'"

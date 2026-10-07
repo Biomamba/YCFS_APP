@@ -111,6 +111,16 @@ jobs:
         with:
           node-version: '22'
 
+      # ⚠️⚠️ Node 22 自带的是 **npm 10.x**，而 shinyelectron 要 npm >= 11.5
+      #     （npm 11 是跟着 Node 24 发的，不是 22）。2026-10-07 第一次跑 CI
+      #     实测：node 22.23.2 配 npm 10.9.8，build_exe.R 的 preflight 当场
+      #     拒绝、打包这一步一秒没过。**光装 Node 22 是不够的。**
+      - name: 把 npm 升到 11
+        shell: bash
+        run: |
+          npm install -g npm@11 || npm install -g npm@11 --force
+          npm --version
+
       - name: 装 shinyelectron
         shell: Rscript {0}
         run: install.packages("shinyelectron", repos = "https://cloud.r-project.org")
@@ -198,6 +208,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+
+      # 同上：Node 22 自带的 npm 是 10.x，要 >= 11.5。
+      - name: 把 npm 升到 11
+        run: |
+          npm install -g npm@11 || npm install -g npm@11 --force
+          npm --version
 
       - name: 装 shinyelectron
         run: Rscript --no-environ -e 'install.packages("shinyelectron", repos = "https://cloud.r-project.org")'

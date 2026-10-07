@@ -189,7 +189,7 @@ else
   if [ -z "$UNITS" ]; then
     grn "✓ 没有这几个单元"
   elif [ "$CHECK_ONLY" -eq 1 ]; then
-    ylw "! 发现：$UNITS（正在崩溃重启，--check 没动它们）"
+    ylw "! 发现：${UNITS}（正在崩溃重启，--check 没动它们）"
     echo "  它们是 V1（Python 版）的，日志写进 $DAT/logs/"
     echo "  正式跑的时候会 disable --now 掉它们"
   else
@@ -251,7 +251,7 @@ if [ "$CHECK_ONLY" -eq 1 ]; then
     echo "  两个地址 = 两个 R 进程 = 同一份库，登录会互相顶掉。"
     echo "  正式跑的时候会删掉这条软链：rm $OLDDEST"
   elif [ -n "$OLD_OTHER" ]; then
-    ylw "! $OLDDEST 存在，但不是指向这里的软链（$OLD_OTHER），脚本不会动它"
+    ylw "! $OLDDEST 存在，但不是指向这里的软链（${OLD_OTHER}），脚本不会动它"
   else
     grn "✓ 没有多余的旧地址"
   fi
@@ -289,7 +289,7 @@ if [ -L "$DEST" ]; then
   if [ "$cur" = "$SRC" ]; then
     grn "✓ 已经是指向这里的软链，不用换"
   else
-    ylw "! 原本指向 $cur，改指向 $SRC"
+    ylw "! 原本指向 ${cur}，改指向 $SRC"
     ln -sfn "$SRC" "$DEST"
     grn "✓ 软链已更新"
   fi
@@ -299,7 +299,7 @@ else
     #    要能原样退回去"这件事只有在旧目录还在的时候才成立。
     BACKUP="${DEST}.pre_v5_${STAMP}"
     mv "$DEST" "$BACKUP"
-    grn "✓ 旧目录挪到了 $BACKUP（**没有删**，确认新版没问题后可以自己清掉）"
+    grn "✓ 旧目录挪到了 ${BACKUP}（**没有删**，确认新版没问题后可以自己清掉）"
   else
     grn "✓ $DEST 本来就不存在"
   fi
@@ -413,7 +413,7 @@ if [ "$CODE" = "200" ]; then
     grn "  ✓ 应用的 R 进程活着"
     OK=1
   else
-    red "  ✗ 应用进程没有应答（HTTP $SC）"
+    red "  ✗ 应用进程没有应答（HTTP ${SC}）"
     echo "    排查：journalctl -u shiny-server -n 50"
     echo "          tail -50 /var/log/shiny-server/YCFS_APP-*.log"
   fi
@@ -454,13 +454,13 @@ if [ "$OLD_ALIAS" = "1" ]; then
     now_cur="$(readlink -f "$OLDDEST" 2>/dev/null || true)"
     if [ "$now_cur" = "$SRC" ]; then
       rm -f "$OLDDEST"
-      grn "✓ 旧地址已退役：删掉了软链 $OLDDEST（目标目录和数据都没动）"
+      grn "✓ 旧地址已退役：删掉了软链 ${OLDDEST}（目标目录和数据都没动）"
     else
       ylw "! $OLDDEST 在这几步之间变了（现在指向 ${now_cur:-<断链>}），没动它"
     fi
   fi
 elif [ -n "$OLD_OTHER" ]; then
-  ylw "! $OLDDEST 不是指向这里的软链（$OLD_OTHER），没动它"
+  ylw "! $OLDDEST 不是指向这里的软链（${OLD_OTHER}），没动它"
   echo "  要让它也失效：先确认它指向哪儿，再 sudo rm $OLDDEST"
 fi
 
