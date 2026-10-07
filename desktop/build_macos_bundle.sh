@@ -116,6 +116,54 @@ ls "$STAGE/runtime/R/bin/Rscript" >/dev/null || die "没有 runtime/R/bin/Rscrip
 #    时报的是"cannot execute"，而所有文件"都在"。
 chmod +x "$STAGE/runtime/R/bin/Rscript" "$STAGE/runtime/R/bin/R" 2>/dev/null || true
 
+# ---- 1b. fontconfig：把**绝对路径**的符号链接改成相对的 ----------------------
+#
+# ⚠️⚠️ 2026-10-07 发现，而且是**把打好的 zip 拆开逐条看**才看得见的：
+#
+#   portable R 的包里，runtime/R/fontconfig/fonts/conf.d/ 下有 17 条符号链接，
+#   指向
+#     /Library/Frameworks/R.framework/Resources/fontconfig/fontconfig/conf.avail/xxx.conf
+#   —— 那是**打包机**上的路径（CI runner 刚装完 R）。用户的 Mac 上没装 R，
+#   这 17 条**必然全断**，而且断了**不报错**：fontconfig 读不了的 conf 就当它
+#   不存在、静默跳过。
+#
+#   丢的是 49-sansserif.conf / 40-nonlatin.conf / 45-latin.conf 这一批
+#   **字族别名与回退**规则。失掉的具体后果我**没有实测**（手上没有一台没装 R 的
+#   Mac），能确定的只有两件：① 这 17 条在用户机器上必断；② 断了之后随包发的
+#   那份配置被**静默丢弃**、退回 fontconfig 编译进去的默认值。这个应用是中文的、
+#   要出图，字体回退正是中文最容易踩的地方 —— 但请把它当**风险**，不要当结论。
+#   注意它也**只在从没装过 R 的机器上**才发作：开发机上装了 R，链接是好的，
+#   怎么试都复现不出来。
+#
+#   好消息：真文件**就在包里**（fontconfig/fontconfig/conf.avail/ 那 35 条，
+#   核过 zip），所以不用下载任何东西，把链接改成相对路径就行：
+#       fonts/conf.d/x.conf  ->  ../../fontconfig/conf.avail/x.conf
+#   这样它跟着包走，解压到哪儿都对。
+#   （前提是打包末尾 zip 用了 -y 存链接、用户那边解压保留链接 —— 本来就是这样。）
+#
+#   为什么 Windows 那份不用改：Windows 版的 R 是纯 zip，没有 fontconfig。
+FC_D="$STAGE/runtime/R/fontconfig/fonts/conf.d"
+FC_A="$STAGE/runtime/R/fontconfig/fontconfig/conf.avail"
+if [ -d "$FC_D" ]; then
+  fc_abs=0; fc_fixed=0
+  for l in "$FC_D"/*.conf; do
+    [ -L "$l" ] || continue
+    case "$(readlink "$l")" in
+      /*) fc_abs=$((fc_abs + 1))
+          base="$(basename "$l")"
+          if [ -f "$FC_A/$base" ]; then
+            ln -sfn "../../fontconfig/conf.avail/$base" "$l"
+            fc_fixed=$((fc_fixed + 1))
+          fi
+          ;;
+    esac
+  done
+  say "  fontconfig：绝对链接 ${fc_abs} 条 → 改成相对 ${fc_fixed} 条"
+  # 少改一条就是"某些字族回退在用户机器上失效"，而这件事**没有任何报错**，
+  # 所以这里直接判死，不留活口。
+  [ "$fc_fixed" -eq "$fc_abs" ] || die "fontconfig 有绝对链接没改过来（${fc_abs} 条里只改了 ${fc_fixed} 条）—— 见上面注释：用户机器上会静默失效"
+fi
+
 # ---- 2. R 包（macOS 二进制）------------------------------------------------
 say "装依赖包进 runtime/R/library（这一步最慢，第一次要几分钟）"
 # 第 3 个参数是完整的 R 版本号，第 4 个是平台 —— fetch_win_pkgs.R 按它选
@@ -203,6 +251,17 @@ chk "Rscript 在"                         "[ -f '$STAGE/runtime/R/bin/Rscript' ]
 chk "★ Rscript 可执行"                   "[ -x '$STAGE/runtime/R/bin/Rscript' ]"
 chk "libR.dylib 在（macOS 版 R 的核心）" \
     "[ -n \"\$(find '$STAGE/runtime/R' -maxdepth 3 -name 'libR.dylib' | head -1)\" ]"
+# ★ 这条必须有，因为**这个 bug 一声不吭**：断掉的 conf 被 fontconfig 当不存在、
+#   静默跳过，要等用户在没装 R 的机器上画图才可能看出来（而且未必看得出来）。
+#   判据 = runtime/R 底下**一条指向绝对路径的符号链接都不许有**。
+#   为什么判"是不是绝对"而不是"是不是断链"：断不断要在**用户机器上**才知道，
+#   而打包机上恰好装着 R ⇒ 绝对链接在**这里**是好的。只有"绝对/相对"这个属性
+#   两边一致，所以判它。
+# ⚠️ 用 R 写而不是 `find -lname '/*'`：macOS 的 find 是 BSD 的，`-lname` 有没有
+#    不保证（这个文件里判 JSON 那一条也是同样的理由换成 R 的）。
+#    Sys.readlink() 对非链接返回 ""，startsWith("", "/") 是 FALSE ⇒ 天然过滤掉。
+chk "★ runtime/R 下没有指向绝对路径的符号链接（fontconfig 那 17 条就是这个坑）" \
+    "Rscript --no-environ -e 'rr <- \"$STAGE/runtime/R\"; f <- list.files(rr, recursive=TRUE, all.files=TRUE, full.names=TRUE); t <- Sys.readlink(f); b <- t[startsWith(t, \"/\")]; if (length(b)) cat(\"  指向绝对路径的：\", paste(b, collapse=\"  \"), \"\n\"); quit(status = if (length(b)) 1L else 0L)'"
 chk "app.R 在"                           "[ -f '$STAGE/app.R' ]"
 # ★ 这一组是"字节码真的打进去了"。
 chk "★ 分发包里**没有** R/ 目录（源码树不该发出去）" "[ ! -e '$STAGE/R' ]"

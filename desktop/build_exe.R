@@ -294,7 +294,214 @@ cfg <- sub("^(\\s*icon:\\s*).*$", paste0("\\1", ICON), cfg)
 #    "应用版本"和我们以为发出去的那一版对不上，而这在排查问题时最要命。
 cfg <- sub("^(\\s*version:\\s*).*$",
            paste0("\\1\"", version, "\""), cfg)
+
+# ★ 便携 R 的版本：**必须钉死**，而且必须和本应用字节码的 R 小版本一致。
+#
+#   不钉会怎样（2026-10-07 实测）：shinyelectron 的兜底常量
+#   SHINYELECTRON_DEFAULTS$runtime_versions$r 是 **4.6.1**，于是 CI 上每次都去
+#   下 4.6.1 打进包里。而本仓库的 .R 字节码是 R 4.4.x 编的（本机
+#   R.version.string = "R version 4.4.2"）—— 小版本对不上，症状是
+#   "打出来的包能开、一用就废"。
+#
+#   优先级（读过 R/runtime-versions.R:11）：配置里的 `dependencies.r.version`
+#   > "latest" > 上面那个常量。所以写进 yml 就够了。R/ 那边只有
+#   resolve_runtime_version() 读这个键，merge_r_dependencies() 只看
+#   repos/packages（读过，version 在依赖检测里一个字都没用），所以钉它
+#   除了选运行时之外没有副作用。
+#
+#   ⚠️ 这个值和下面 2b 段预置缓存时的版本**必须是同一个**，所以只在这里写
+#      一次、下面引用变量 —— 抄成两份的话，改了这头忘那头就是"预置了 4.4.3、
+#      上游去找 4.5.0"，而报出来的是又一句看不懂的英文错。
+RUNTIME_R_VERSION <- "4.4.3"
+
+cfg <- c(cfg,
+         "",
+         "# ---- 下面这两行由 desktop/build_exe.R 自动追加，不要手改 ----------",
+         "# 便携 R 的版本。不写的话 shinyelectron 会回落到它自己的 pin（4.6.1），",
+         "# 和本应用字节码的 R 小版本对不上（详见 build_exe.R 里的注释）。",
+         "dependencies:",
+         "  r:",
+         sprintf("    version: \"%s\"", RUNTIME_R_VERSION))
 writeLines(cfg, file.path(STAGE, "_shinyelectron.yml"))
+
+# 写完**读回来**核一遍：这份 yml 是要被 shinyelectron 解析的，拼错一个缩进
+# 就是"静默回落默认值"，而默认值恰恰是我们要避开的那个 4.6.1。
+# 用**它自己的** read_config()/resolve_runtime_version() 读 —— 这样核对的是
+# "它实际会怎么解析"，不是"我以为 YAML 该长什么样"。
+.rv <- tryCatch(
+  shinyelectron:::resolve_runtime_version(
+    "r", shinyelectron:::read_config(STAGE)),
+  error = function(e) paste0("<解析失败：", conditionMessage(e), ">"))
+if (!identical(.rv, RUNTIME_R_VERSION)) {
+  stop("_shinyelectron.yml 里钉的 R 版本没生效：期望 ", RUNTIME_R_VERSION,
+       "，shinyelectron 解析出来是 ", .rv,
+       "\n（写进 yml 的那几行在 build_exe.R 的 2 段末尾；别让它静默回落成 4.6.1）")
+}
+say("便携 R 版本：%s（从写好的 _shinyelectron.yml 读回来核过）", .rv)
+
+# ---- 2b. 便携 R 预置进 shinyelectron 的缓存 ----------------------------------
+#
+# ⚠️⚠️ 为什么非要自己干这一步（2026-10-07 查清 —— 是 shinyelectron 0.2.1 的 bug，
+#      不是我们配错了）：bundled 策略下它会下载便携 R 再校 SHA-256，
+#      **在 R 4.4.x 上每次必失败**，mac-app 那个 job 就是这么红的：
+#
+#        ✖ Error: Checksum verification failed for R 4.6.1
+#        ✖ Expected SHA-256: 7077a884f4368f389783c25001861f428fca0715505be0453ae20cb809baa4d7
+#        ✖ Actual SHA-256:                      ← 关键：这里是**空的**
+#
+#      "Actual 是空的"就是线索。它算哈希走的是
+#        R/install-nodejs.R 的 compute_sha256()  →  tools::sha256sum()
+#      而 **`tools::sha256sum` 在 R 4.4.x 的 tools 包里根本不存在**（本机实测
+#      R 4.4.2：getNamespaceExports("tools") 里有 md5sum、checkMD5sums，没有
+#      sha256sum；直接调会抛 "'sha256sum' is not an exported object"）。
+#      那个函数外面包着 tryCatch、出错返回 NULL，于是
+#      identical(tolower(NULL), "7077...") 恒为 FALSE ⇒ **和下载下来的文件
+#      一点关系都没有，每次必失败**。
+#
+#      躲不掉，两条路都堵死：
+#        · 换版本没用 —— portable-r 从 v4.3.2 起**每个 release 都发 .sha256**
+#          边车（查过 releases API），expected_sha256 不会为 NULL，那段校验
+#          每次都会走到；
+#        · 换 R 没用 —— 4.4.x 全都没有那个函数，而我们的字节码就是 4.4.x 的。
+#
+#      ⇒ 绕法：**自己下载 + 自己校验 + 自己解压到它的缓存目录**。
+#        install_r_portable() 里 `is_installed = r_is_installed(...)`（就是
+#        "那个目录在不在"），而 force 默认 FALSE、embed_r_runtime() 也不传
+#        force（都逐行读过源码）⇒ 缓存命中就直接 return 了，
+#        **那段跑不起来的校验根本不会被调用**。
+#
+#      ⚠️ 校验是我们自己做掉的，不是跳过：用系统自带的 sha256 工具
+#        （shasum / sha256sum / certutil）对着**官方的 .sha256 边车**核。
+#        一个工具都没有时**大声警告但继续**（fail-open）—— 这是构建期从
+#        GitHub Releases 走的 HTTPS 下载，把"机器上没有校验工具"变成硬失败，
+#        会让这条路在任何干净机器上都不可用。对不上则**立刻停**。
+#
+#      ⚠️ 只在真踩到这个 bug 时才插手：`tools::sha256sum` 存在（R >= 4.5）
+#        就直接返回，让上游走它自己的路。将来这台机器的 R 升上去，
+#        这段代码自动失效、不需要人来删。
+#
+#      ⚠️ 解压**用上游自己的 tar 程序**（extract_tar_program()）而不是
+#        utils::untar 的 internal —— 那份 mac 归档里全是符号链接，
+#        R 自带的 internal 实现不保证保留它们。
+sha256_of <- function(path) {
+  # 三选一，按顺序试第一个在这台机器上真的存在的。
+  # 认哈希的办法是"从输出里挑那个 64 位十六进制串"，不是按行/按列切 ——
+  # 三个工具的排版各不相同（certutil 还夹着中文/英文说明行）。
+  arg <- if (.Platform$OS.type == "windows") shQuote(path) else path
+  probes <- list(
+    list("shasum",    c("-a", "256", arg)),
+    list("sha256sum", c(arg)),
+    list("certutil",  c("-hashfile", arg, "SHA256"))
+  )
+  for (p in probes) {
+    if (!nzchar(Sys.which(p[[1]]))) next
+    out <- suppressWarnings(system2(p[[1]], p[[2]], stdout = TRUE, stderr = FALSE))
+    tok <- unlist(strsplit(paste(out, collapse = " "), "[[:space:]]+"))
+    tok <- grep("^[0-9a-fA-F]{64}$", tok, value = TRUE)
+    if (length(tok)) return(tolower(tok[[1]]))
+  }
+  NULL
+}
+
+seed_portable_r <- function(version, plat, arch) {
+  se <- asNamespace("shinyelectron")
+
+  if ("sha256sum" %in% getNamespaceExports("tools")) {
+    say("这台机器的 R 有 tools::sha256sum —— 上游的校验是好的，不用预置。")
+    return(invisible(FALSE))
+  }
+
+  need <- c("r_install_path", "r_download_url", "r_executable",
+            "extract_tar_program")
+  miss <- need[!vapply(need, exists, logical(1), envir = se, inherits = FALSE)]
+  if (length(miss)) {
+    say("⚠️ shinyelectron 的内部函数对不上了（缺 %s）—— 跳过预置。",
+        paste(miss, collapse = ", "))
+    say("   包版本换过了？先看这段的注释，别直接把预置删了 —— 上面那个")
+    say("   checksum 的 bug 还在的话，删了这条 job 必红。")
+    return(invisible(FALSE))
+  }
+  get_ns <- function(nm) get(nm, envir = se)
+
+  ipath <- get_ns("r_install_path")(version, plat, arch)
+  if (!is.null(get_ns("r_executable")(version, plat, arch))) {
+    say("便携 R %s 已经在缓存里（%s），跳过下载。", version, ipath)
+    return(invisible(TRUE))
+  }
+
+  url <- get_ns("r_download_url")(version, plat, arch)
+  tmp <- tempfile(fileext = paste0(".", tools::file_ext(url)))
+  say("预置便携 R %s ← %s", version, url)
+  st <- tryCatch(utils::download.file(url, tmp, mode = "wb", quiet = TRUE),
+                 error = function(e) conditionMessage(e))
+  if (!is.numeric(st) || !identical(as.integer(st), 0L)) {
+    say("⚠️ 下载失败（%s）。预置没做成，剩下的交回上游 ——", st)
+    say("   它多半会报那句 'Checksum verification failed ... Actual SHA-256: '（空的），")
+    say("   那不是网络问题，是 tools::sha256sum 不存在。看这段的注释。")
+    return(invisible(FALSE))
+  }
+  say("  下载完成：%.1f MB", file.size(tmp) / 1024^2)
+
+  # 官方的 .sha256 边车。取不到就 fail-open，和上游的行为一致。
+  want <- tryCatch({
+    l  <- suppressWarnings(readLines(paste0(url, ".sha256"), warn = FALSE))
+    h  <- unlist(strsplit(paste(l, collapse = " "), "[[:space:]]+"))
+    h  <- grep("^[0-9a-fA-F]{64}$", h, value = TRUE)
+    if (length(h)) tolower(h[[1]]) else NULL
+  }, error = function(e) NULL)
+  got <- sha256_of(tmp)
+
+  if (is.null(want)) {
+    say("  ⚠️ 没取到官方 .sha256 边车 —— 这一次没得校（继续）")
+  } else if (is.null(got)) {
+    say("  ⚠️ 这台机器上 shasum/sha256sum/certutil 一个都没有 —— 这一次没得校（继续）")
+  } else if (!identical(got, want)) {
+    unlink(tmp)
+    stop("便携 R ", version, " 的 SHA-256 对不上：\n",
+         "  官方边车：", want, "\n",
+         "  实际算得：", got, "\n",
+         "  下载的文件已经删掉了，别绕过这一步。")
+  } else {
+    say("  SHA-256 校验通过（%s…，我们自己对边车核的）", substr(got, 1, 16))
+  }
+
+  # 解压到 staging 再整体搬 —— 和上游 download_and_extract_portable_tool()
+  # 里的做法一样：中途失败绝不留下一个"半个安装"。
+  staging <- paste0(ipath, ".staging-", Sys.getpid())
+  unlink(staging, recursive = TRUE)
+  dir.create(staging, recursive = TRUE, showWarnings = FALSE)
+  ok <- tryCatch({
+    if (tools::file_ext(tmp) == "gz") {
+      utils::untar(tmp, exdir = staging, tar = get_ns("extract_tar_program")())
+    } else {
+      utils::unzip(tmp, exdir = staging)
+    }
+    TRUE
+  }, error = function(e) { say("  ⚠️ 解压失败：%s", conditionMessage(e)); FALSE })
+  unlink(tmp)
+  if (!ok) { unlink(staging, recursive = TRUE); return(invisible(FALSE)) }
+
+  dir.create(dirname(ipath), recursive = TRUE, showWarnings = FALSE)
+  unlink(ipath, recursive = TRUE)
+  if (!file.rename(staging, ipath)) {
+    stop("把解压好的便携 R 搬到缓存目录时失败：", staging, " → ", ipath)
+  }
+
+  # 搬完用**它自己的** r_executable() 找一遍。找不到就必须撤回整个目录 ——
+  # 因为 r_is_installed() 只问"目录在不在"，留着一个结构不对的目录，
+  # 上游会命中它、把一堆垃圾打进包里（症状是"包能开、一用就废"）。
+  exe <- get_ns("r_executable")(version, plat, arch)
+  if (is.null(exe)) {
+    unlink(ipath, recursive = TRUE)
+    say("  ⚠️ 解压成功但 r_executable() 找不到 Rscript —— 归档结构和它期望的")
+    say("     不一样，已经把目录撤掉了，交回上游。")
+    return(invisible(FALSE))
+  }
+  say("  便携 R 已就位：%s", exe)
+  invisible(TRUE)
+}
+
+seed_portable_r(RUNTIME_R_VERSION, PLAT, ARCH)
 
 # ---- 3. 打包 -----------------------------------------------------------------
 icon <- ICON

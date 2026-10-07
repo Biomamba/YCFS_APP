@@ -340,11 +340,14 @@ cat <<EOF
 == 完成。接下来：
 
   1. 在 GitHub 上建一个**空**仓库：Biomamba/YCFS_APP（不要勾 README/.gitignore）
-  2. cd $OUT
-     git remote add origin git@github.com:Biomamba/YCFS_APP.git   # 或 https 那个
-     git push -u origin main
-  3. Releases → Draft a new release → tag 填 $VER
-     附件上传 $REL/ 里那三个 zip
+  2. 推 —— ⚠️ **不要在这台机器上 git push**（到 github.com 的 TCP 成功率 3/8，
+     git push 必定超时 exit 124）。走 API：
+         python3 desktop/push_via_api.py $OUT --force
+     --force 是快进不是覆盖：新提交以远端现有提交为**父提交**。
+  3. 桌面版产物**不用手动传**：.github/workflows/desktop.yml 的 release job
+     会把四个产物摊平、出 SHA256SUMS.txt、建成 Release 附件 ——
+     手动触发时填 release_tag（如 $VER）即可。
+     手工兜底才用 Releases → Draft a new release，附件传 $REL/ 里那三个 zip。
   4. 仓库根 README 里的徽章、Releases 链接都写成这个仓库，确认一眼
 
 ⚠️ 推之前先看 $OUT/发布到GitHub.md。

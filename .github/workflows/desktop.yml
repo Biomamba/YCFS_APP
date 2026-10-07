@@ -214,44 +214,39 @@ jobs:
         with:
           r-version: ${{ env.R_VERSION }}
 
-      # ⚠️ 一次性诊断（2026-10-07），查完就删。
+      # ⚠️ 已结案（2026-10-07），别再重查一遍。
       #
-      #   【已知】mac-bundle 连着几轮都死在同一行（build_macos_bundle.sh:135）：
+      #   起因：mac-bundle 连着几轮死在同一行（build_macos_bundle.sh:135）：
       #       Rscript --no-environ -e 'cat(paste0(R.version$major, ".", sub("\\..*$", ...)))'
-      #     报 `Error: '\.' is an unrecognized escape ... (<input>:1:40)`。
-      #     本地复现钉死了这个列号的含义：**R 收到的是单个反斜杠**才对得上
-      #     1:40（两个反斜杠时这句正常输出 4.4，不报错）。
-      #     同时排除了：远端文件逐字节正确（contents API 取回比对过）、
-      #     同一写法在 ubuntu 上跑得通（win-bundle 全绿）、bash 引号没断（bash -n 过）。
+      #     报 `Error: '\\.' is an unrecognized escape ... (<input>:1:40)`。
       #
-      #   【这一轮要问的】到底是谁吃的。同一段代码走两条路，一次问清：
-      #     · 走**文件**（heredoc 带引号，shell 一个字都不碰）—— 成不成？
-      #     · 走 **-e**                                            —— 成不成？
-      #   若"文件成、-e 不成"，那就是 Rscript 转发 `-e` 参数的环节，跟引号无关；
-      #   下面 `file` / `head` 那两行会直接暴露 /usr/local/bin/Rscript 是不是
-      #   一个 shell 包装器（CRAN 的 mac 版 R 里，`R` 就是脚本，Rscript 待查）。
-      - name: 诊断——单引号里的反斜杠（一次性，查完删）
-        run: |
-          echo "bash：$(bash --version | head -1)"
-
-          echo
-          echo "== 1. Rscript 是什么 =="
-          ls -la /usr/local/bin/Rscript
-          file  /usr/local/bin/Rscript
-          # 如果是 shell 包装器，这几行会把它怎么转发参数摊开
-          head -c 400 /usr/local/bin/Rscript | cat -v | head -12
-
-          echo
-          echo "== 2. 同一段代码，走**文件**（heredoc 带引号，shell 不碰）=="
-          cat > /tmp/t.R <<'REOF'
-          cat("  file: nchar=", nchar("\\."), " sub=", sub("\\..*$", "", "4.4.3"), "\n")
-          REOF
-          od -c /tmp/t.R | head -2
-          Rscript --no-environ /tmp/t.R || echo "  ★文件这条路也失败"
-
-          echo
-          echo "== 3. 同一段代码，走 -e =="
-          Rscript --no-environ -e 'cat("  -e:   nchar=", nchar("\\."), " sub=", sub("\\..*$", "", "4.4.3"), "\n")' || echo "  ★-e 这条路失败"
+      #   当时在**这个 job 里**跑了一次对照实验（同一段代码、同一个 bash、
+      #   同一个 R，只换投递方式），结论是：
+      #
+      #     · 走**文件**（heredoc 带引号写 /tmp/t.R，`od -c` 看得到文件里
+      #       确实是两个反斜杠）→ `nchar("\\.")` = 2、`sub("\\..*$","","4.4.3")` = "4"，**正常**；
+      #     · 走 **-e**（同一段代码，直接写在步骤脚本里，不是从仓库里读的）
+      #       → `Error: '\\.' is an unrecognized escape ... (<input>:1:31)`，**失败**。
+      #
+      #   列号是判据：R 报的是"转义符后面那个字符"的位置（本机实测
+      #   `cat(nchar("\."))` 里 `\` 在第 12 列、`.` 在第 13 列，R 报 1:13）。
+      #   runner 报 1:31，而源码里那两个反斜杠在第 30、31 列 ——
+      #   **说明 R 收到的是一个反斜杠，且前面每个字符都对得上**。
+      #
+      #   ⇒ 结论：**这台 macOS runner 上，`Rscript -e` 这条路会吃掉一层反斜杠；
+      #     写成文件走 `Rscript <file>` 不会。** 不是我们的引号写错，
+      #     不是 YAML 吃了，也不是仓库里的文件不对（那三样当时都排除了）。
+      #     机制没查到（`/usr/local/bin/Rscript` 是指向 Mach-O 二进制的符号链接，
+      #     不是 shell 包装器，所以"包装器重复解析一遍"这个解释不成立）——
+      #     但它可复现，而且够用了。
+      #
+      #   ⇒ 规矩：**别在 `Rscript -e` 里写任何反斜杠转义**（正则、`\n`、`\t`）。
+      #     要正则就写成字符类（`[.]` 而不是 `\\.`），或者干脆落成一个文件再跑。
+      #     build_macos_bundle.sh / build_windows_bundle.sh 里那两句
+      #     `sub("[.].*$", ...)` 就是照这条改的 —— 别再"顺手改回 `\\.`"。
+      #     复查办法（*_common.py 里那些是文档里的例子，不是调用点，别被 grep 骗了）：
+      #       grep -rn "Rscript.*-e " desktop/ deploy.sh tests/err_guard/ .github/
+      #     真正的调用点只有 desktop/ 两个脚本 + 本工作流 + tests/err_guard/run.sh。
 
       - name: 组装（${{ matrix.arch }}）
         run: bash desktop/build_macos_bundle.sh out ${{ matrix.arch }}
