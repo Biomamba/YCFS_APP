@@ -76,12 +76,22 @@ cat("取到的函数：", paste(got, collapse = ", "), "\n\n", sep = "")
 stopifnot(setequal(got, c("sha256_of", "sha256_from_output", "seed_portable_r")))
 
 # ---- 1. 真 URL 字符串（核对资产名，和 GitHub releases API 列出来的一致）------
+#
+# ⚠️⚠️ 这里原来写的是 `c("4.4.3","mac","arm64") -> "https://…"` —— 那是**右赋值**，
+#    不是 list 的元素！`x -> y` 把 x 赋给名叫 y 的变量 ⇒ list 里装的是四个**没有名字**
+#    的字符串 ⇒ `names(urls)` 是 NULL ⇒ 下面那个 for **一次都没进过**。
+#    症状：这一节一条都不打（`[1] …` 后面直接空行），**也不会红** —— 它只是安静地
+#    什么都没干。2026-10-07 第 7 次 CI 才发现：把每一节的条数加起来是 27，
+#    而脚本一直只报 23 —— 差的就是这 4 条。
+#    所以下面既改成**带名字的 list**，又加了 `stopifnot(length(urls) == 4L)`
+#    把"空转"这条路堵死（本仓的规矩：拿不到就跳过 = 假绿，比红更坏）。
 cat("[1] r_download_url 拼出来的 URL\n")
 urls <- list(
-  c("4.4.3","mac","arm64")  -> "https://github.com/portable-r/portable-r-macos/releases/download/v4.4.3/portable-r-4.4.3-macos-arm64.tar.gz",
-  c("4.4.3","mac","x64")    -> "https://github.com/portable-r/portable-r-macos/releases/download/v4.4.3/portable-r-4.4.3-macos-x86_64.tar.gz",
-  c("4.4.3","win","x64")    -> "https://github.com/portable-r/portable-r-windows/releases/download/v4.4.3/portable-r-4.4.3-win-x64.zip",
-  c("4.4.3","win","arm64")  -> "https://github.com/portable-r/portable-r-windows/releases/download/v4.4.3/portable-r-4.4.3-win-aarch64.zip")
+  "4.4.3,mac,arm64" = "https://github.com/portable-r/portable-r-macos/releases/download/v4.4.3/portable-r-4.4.3-macos-arm64.tar.gz",
+  "4.4.3,mac,x64"   = "https://github.com/portable-r/portable-r-macos/releases/download/v4.4.3/portable-r-4.4.3-macos-x86_64.tar.gz",
+  "4.4.3,win,x64"   = "https://github.com/portable-r/portable-r-windows/releases/download/v4.4.3/portable-r-4.4.3-win-x64.zip",
+  "4.4.3,win,arm64" = "https://github.com/portable-r/portable-r-windows/releases/download/v4.4.3/portable-r-4.4.3-win-aarch64.zip")
+stopifnot(length(names(urls)) == 4L)   # 名字没了 = 下面那个 for 空转
 for (k in names(urls)) {
   p <- strsplit(k, ",")[[1]]
   u <- shinyelectron:::r_download_url(p[1], p[2], p[3])
@@ -114,8 +124,19 @@ Sys.chmod(fakebin, "0755")
 old_path <- Sys.getenv("PATH")
 # 把 shasum/sha256sum/powershell 藏起来，逼它走 certutil 分支
 fakeshim <- file.path(tempdir(), "shim"); dir.create(fakeshim, showWarnings = FALSE)
+# ⚠️⚠️ 假货的**靶子必须自己造**，别 symlink 到 "/bin/false"：
+#    macOS 上**根本没有 /bin/false**（false 在 /usr/bin/），而 file.symlink()
+#    对不存在的目标**照样返回 TRUE** ⇒ 造出一排**悬空**链接，stopifnot 也过，
+#    但 Sys.which 里 access(X_OK) 失败 ⇒ 找不到它们 ⇒ 回落到**真的** shasum
+#    ⇒ 探针量的是真工具，假绿。2026-10-07 第 7 次 CI 的 mac 就是这么红的 ——
+#    **红了是好事**，下面那条自检就是专门抓这个的（它抓到了）。
+#    自造一个"什么都不输出"的可执行脚本，就不依赖任何外部路径了。
+noout <- file.path(fakeshim, "dsapp-noout")
+writeLines(c("#!/bin/sh", "exit 1"), noout)
+Sys.chmod(noout, "0755")
+stopifnot(file.exists(noout), file.access(noout, 1L) == 0L)
 for (nm in c("shasum", "sha256sum", "powershell"))
-  stopifnot(isTRUE(file.symlink("/bin/false", file.path(fakeshim, nm))))
+  stopifnot(isTRUE(file.symlink(noout, file.path(fakeshim, nm))))
 # ⚠️ 分隔符是 .Platform$path.sep（":"）**不是** file.sep（"/"）——
 #    我第一版就写成 file.sep 了，PATH 拼成 "shim//tmp//usr/bin:…" 一个有效项都没有，
 #    Sys.which 于是回落到**原来的** PATH，探针量到的是真的 shasum ——
@@ -139,6 +160,34 @@ got_disp <- env$sha256_of(f)
 Sys.setenv(PATH = old_path)
 ok(identical(got_disp, tolower(ref)),
    paste0("★ 带空格的 certutil 输出也能认（拿到 ", if (is.null(got_disp)) "NULL" else substr(got_disp,1,12), "…）"))
+
+# ---- 2c. ★ powershell 那条探针的**引号** --------------------------------
+#    这是四条探针里唯一**平时根本跑不到**的一条（Windows 上 certutil 排在它前面，
+#    别的平台上没有 powershell），所以它坏了也没人知道。
+#    它确实坏过：`-Command` 那段没加 shQuote，system2 不替我们引号，整串被按空白
+#    拆成好几个参数，`(…)` 落到 sh 手里就是语法错。第 7 次 CI 的 mac 日志里
+#    原样打出来了：sh: -c: line 0: syntax error near unexpected token `('
+#    —— 而且**不抛异常**（stdout 空 ⇒ 这条探针算"没结果"⇒ 往后走），
+#    在只有 powershell 一个工具的机器上，校验会被**悄悄跳过**。
+#    下面造一个假 powershell：只要它能被**当成一个参数**调用起来，就回一个哈希。
+#    引号错了的话 sh 直接语法错 ⇒ 拿不到 ⇒ 这条红。
+psdir <- file.path(tempdir(), "psonly"); dir.create(psdir, showWarnings = FALSE)
+H_PS <- strrep("cd", 32)
+writeLines(c("#!/bin/sh", sprintf("echo %s", H_PS)), file.path(psdir, "powershell"))
+Sys.chmod(file.path(psdir, "powershell"), "0755")
+# ⚠️ 前三条探针要用 noout 挡住，而且必须放**这个目录**里 —— 不能借用上面那个
+#    fakeshim（它里面没有 certutil，而且 PATH 里还挂着 tempdir 那份**会打哈希**的
+#    假 certutil，会把这个探针截胡）。四条都必须落在这个目录里，下面自检。
+for (nm in c("shasum", "sha256sum", "certutil"))
+  stopifnot(isTRUE(file.symlink(noout, file.path(psdir, nm))))
+Sys.setenv(PATH = paste(psdir, old_path, sep = .Platform$path.sep))
+w2 <- Sys.which(c("shasum", "sha256sum", "certutil", "powershell"))
+stopifnot(identical(unname(w2), file.path(psdir, names(w2))))   # 四条都得落在这儿
+got_ps <- env$sha256_of(f)
+Sys.setenv(PATH = old_path)
+ok(identical(got_ps, H_PS),
+   paste0("★ powershell 的 -Command 被当成**一个**参数传进去（拿到 ",
+          if (is.null(got_ps)) "NULL" else substr(got_ps,1,12), "…）"))
 }  # end if not windows
 
 # ---- 2b. ★ 各平台 sha256 工具的真实排版（不依赖 PATH，Windows 上也跑）-------

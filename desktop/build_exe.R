@@ -437,7 +437,13 @@ sha256_of <- function(path) {
   #    那是这条路上最坏的失败形态：看着一切正常，实际上没校。
   #    所以下面除了"按空白切"，还把"把所有十六进制片段接起来"也算一个候选。
   arg <- if (.Platform$OS.type == "windows") shQuote(path) else path
-  ps  <- sprintf("(Get-FileHash -Algorithm SHA256 '%s').Hash", path)
+  # ⚠️ `-Command` 那段**必须 shQuote**：system2 不替我们引号，整串会按空白拆成
+  #    好几个参数，`(…)` 落到 sh 手里就是语法错 —— 2026-10-07 的 mac 日志里实打实
+  #    打出来了：`sh: -c: line 0: syntax error near unexpected token '('`。
+  #    出错**不抛异常**（stdout 空 ⇒ 这条探针当成没结果 ⇒ 往后走），所以它是
+  #    "静默失效"：只有 powershell 一个工具可用的机器上，校验会被悄悄跳过。
+  #    shQuote 在 Windows 上自动用 cmd 的引法、在 POSIX 上用单引号，两边都对。
+  ps  <- shQuote(sprintf("(Get-FileHash -Algorithm SHA256 '%s').Hash", path))
   probes <- list(
     list("shasum",     c("-a", "256", arg)),
     list("sha256sum",  c(arg)),
