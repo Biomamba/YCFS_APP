@@ -205,17 +205,26 @@ jobs:
 
       - name: 列出产出
         shell: bash
-        run: find out -maxdepth 3 -type f \( -name '*.exe' -o -name '*.zip' \) -exec ls -la {} +
+        run: find out -path '*/dist/*' -type f \( -name '*.exe' -o -name '*.zip' \) -exec ls -la {} +
 
       - uses: actions/upload-artifact@v4
         with:
           name: win-exe
-          # ⚠️ 这里**故意不写 if-no-files-found: error**：第一次跑就是在探
-          #    shinyelectron 到底往哪儿吐产物（可能在 exe_out/ 下再套一层）。
-          #    找不到东西时 build_exe.R 自己会 exit 1，用不着这一条兜。
+          # ⚠️⚠️ 这里**必须**是 if-no-files-found: error。
+          #
+          #   2026-10-07 第 8 次跑之前这里写的是 `out/**/*.exe` + `out/**/*.zip`，
+          #   并且注释里写着"找不到东西时 build_exe.R 自己会 exit 1，用不着这一条兜"。
+          #   那个理由**当时就不成立**：build_exe.R 那段判据被 node_modules 里的
+          #   signtool.exe / 7z-arm64.exe 顶包了（见那个脚本里的长注释），于是
+          #   electron-builder 明明因为 `⨯ Invalid version` 一条都没打出来，
+          #   job 却是绿的、artifact 里装的是 100 MB 依赖垃圾。
+          #   ⇒ 兜底不能只有一层。这里收窄到产物真正落地的那个目录
+          #     （shinyelectron 的 generate_package_json() 里
+          #      directories.output = "dist"，读过源码），并且**找不到就报错**。
           path: |
-            out/**/*.exe
-            out/**/*.zip
+            out/exe_out/*/dist/*.exe
+            out/exe_out/*/dist/*.zip
+          if-no-files-found: error
 
   # ---------------------------------------------------------------------------
   # macOS 免安装 zip（两个架构各一份）
@@ -385,16 +394,22 @@ jobs:
             done
 
       - name: 列出产出
-        run: find out -maxdepth 4 -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.app' \) -exec ls -ld {} +
+        run: find out -path '*/dist/*' \( -name '*.dmg' -o -name '*.zip' -o -name '*.app' \) -exec ls -ld {} +
 
       - uses: actions/upload-artifact@v4
         with:
           name: mac-app-${{ matrix.arch }}
-          # 同上：第一次跑是探路，产物叫什么名字还不知道。
+          # ⚠️⚠️ 理由和 win-exe 那条**逐字相同**，别只看这一行的注释就改动它：
+          #   `out/**/*.app` 会匹配到
+          #       out/exe_out/electron-app/node_modules/electron/dist/Electron.app
+          #   —— 那是**上游 Electron 自己的**包，不是我们的产物。第 8 次跑就是这么
+          #   上传了 342 MB 依赖垃圾、而`.dmg`一个字节都没有，job 还是绿的。
+          #   收窄到产物真正落地的 dist/，并且**找不到就报错**。
           path: |
-            out/**/*.dmg
-            out/**/*.zip
-            out/**/*.app
+            out/exe_out/*/dist/*.dmg
+            out/exe_out/*/dist/*.zip
+            out/exe_out/*/dist/**/*.app
+          if-no-files-found: error
 
   # ---------------------------------------------------------------------------
   # 汇总发 Release

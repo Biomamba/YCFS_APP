@@ -99,6 +99,40 @@ version <- local({
                                                    warn = FALSE), value = TRUE)
   if (length(l)) sub(".*\"([^\"]+)\".*", "\\1", l[[1]]) else "0.0.0"
 })
+
+# ★★ 「应用版本」和「包版本」是**两个**东西，这里拆开。
+#
+#   2026-10-07 第 8 次 CI 查出来的。那一次**六条 job 全绿、artifact 也传上去了，
+#   而实际上一个单文件产物都没有**。electron-builder 读完 package.json 当场抛：
+#
+#       ⨯ Invalid version: "Test_V16.10"  failedTask=build
+#         at fixVersionField (app-builder-lib/src/util/normalizePackageData.ts:146)
+#
+#   —— shinyelectron 的 generate_package_json() 把 `config$app$version` **原样**
+#   塞进 package.json 的 `version`（读过它的源码），而那个字段只认语义化版本。
+#   `--mac --arm64` 和它的 mac 兜底两条都死在这儿 ⇒ **dist/ 根本没生成**。
+#
+#   ⚠️ 为什么连着八次都没暴露：shinyelectron 的 run_command_safe() 是
+#      `error_on_status = FALSE`，build_for_platforms() **不看返回码**，
+#      validate_build_output() 发现没有 dist/ 只打一句
+#      `! No dist directory found - build may have failed`（warning，不是 abort），
+#      紧接着 build() **无条件**打 `✔ Successfully built Electron app`。
+#      ⇒ 失败被吞成成功，export() 返回的只是一个路径，**不带任何状态**。
+#      我们这边唯一的防线是下面「找产出物」那一段，而它当时在整个 exe_out 下
+#      递归找后缀，被 node_modules 里的顶包了（那一整段的注释里记了）。
+#
+#   ⇒ 只把**给 electron-builder 的那份**换成 semver。应用自己显示的版本还是
+#     R/config.R 里那个（它编在 lib.rds 里，跟这里无关）。
+version_semver <- local({
+  g <- regmatches(version, gregexpr("[0-9]+", version))[[1]]
+  g <- head(g, 3L)                      # "Test_V16.10" → c("16","10")
+  if (!length(g)) g <- "0"              # 一个数字都没有也认，但会看得出来（0.0.0）
+  while (length(g) < 3L) g <- c(g, "0") # 补成三段 → "16.10.0"
+  paste(g, collapse = ".")
+})
+if (!grepl("^[0-9]+\\.[0-9]+\\.[0-9]+$", version_semver))
+  stop("从 DSAPP_VERSION 抠出来的 semver 不合法：", version_semver)
+
 APP_NAME <- "DS_App"        # ⚠️ 故意用 ASCII
 # 为什么不叫「Biomamba 言出法随」：这个名字会变成 exe 的文件名、安装目录名、
 # 开始菜单项名。electron-builder 在 Windows 上处理非 ASCII 的产物名时要靠
@@ -109,7 +143,7 @@ APP_NAME <- "DS_App"        # ⚠️ 故意用 ASCII
 if (!PLAT %in% c("win", "mac")) stop("--plat 只能是 win 或 mac，收到：", PLAT)
 if (!ARCH %in% c("x64", "arm64")) stop("--arch 只能是 x64 或 arm64，收到：", ARCH)
 
-say("应用版本：%s", version)
+say("应用版本：%s（给 electron-builder 的包版本是 %s）", version, version_semver)
 say("目标平台：%s / %s", PLAT, ARCH)
 say("输出目录：%s", OUT)
 
@@ -292,8 +326,15 @@ cfg <- sub("^(\\s*icon:\\s*).*$", paste0("\\1", ICON), cfg)
 #    之后就没再跟上过（一直写着 13.2.0）—— 而 shinyelectron 是从这份 yml
 #    读版本的，export() 的参数里没有 app_version。不改写的话，用户看到的
 #    "应用版本"和我们以为发出去的那一版对不上，而这在排查问题时最要命。
+#
+# ★ 写进去的必须是 **version_semver 而不是 version**：这个值会被
+#   generate_package_json() 原样放进 package.json 的 `version`，而
+#   electron-builder 对那个字段只认语义化版本 —— 写 "Test_V16.10" 进去就是
+#   `⨯ Invalid version`，整条打包当场死掉而照样报成功（详见上面 version_semver
+#   那段注释里记的 2026-10-07 第 8 次 CI）。给用户看的版本号另有出处
+#   （R/config.R 编进 lib.rds，界面自己渲染），这里改的只是安装包的元数据。
 cfg <- sub("^(\\s*version:\\s*).*$",
-           paste0("\\1\"", version, "\""), cfg)
+           paste0("\\1\"", version_semver, "\""), cfg)
 
 # ★ 便携 R 的版本：**必须钉死**，而且必须和本应用字节码的 R 小版本一致。
 #
@@ -619,17 +660,80 @@ say("找产出物……")
 #      bundle 里面几百个文件全捞出来 —— 所以下面把 `.app/` 里面的路径滤掉，
 #      单独用 list.dirs() 找 bundle。
 PAT <- if (PLAT == "mac") "\\.(dmg|zip)$" else "\\.(exe|zip)$"
-found <- list.files(file.path(OUT, "exe_out"), pattern = PAT,
-                    recursive = TRUE, full.names = TRUE)
-found <- found[!grepl("\\.app/", found, fixed = TRUE)]
-apps <- if (PLAT == "mac") {
-  d <- list.dirs(file.path(OUT, "exe_out"), recursive = TRUE)
+root <- file.path(OUT, "exe_out")
+
+# ⚠️⚠️ 这一段是整条链上**唯一**能拦住「没打出来却全绿」的闸，所以它自己不能空转。
+#
+#   2026-10-07 第 8 次 CI 实况：六条 job 全绿，而 win-exe / mac-app 的 artifact
+#   里**一个产物都没有**。当时这里的写法是在整个 exe_out 下递归找后缀，于是
+#   下面这些"顶包"把它喂饱了、判据照样通过：
+#     · <exe_out>/electron-app/node_modules/@electron/windows-sign/vendor/signtool.exe
+#     · <exe_out>/electron-app/node_modules/electron-winstaller/vendor/7z-arm64.exe
+#     · <exe_out>/electron-app/runtime/R/library/zip/example.zip        ← 0.0 MB，R 包自带的测试夹具
+#     · <exe_out>/electron-app/node_modules/electron/dist/Electron.app  ← **上游 Electron 自己的**
+#   日志里那句「找产出物……/ signtool.exe 0.4 MB / 7z-arm64.exe 0.5 MB」就是
+#   当时的实况 —— 它把依赖当成了产品，而且不带一个字的怀疑。
+#
+#   真正的产物在哪是有源码依据的、不用猜：shinyelectron 的
+#   generate_package_json() 里写死了 `build_config$directories$output = "dist"`
+#   （读过源码 /tmp/se_src.R），所以产物一定在 <exe_out>/<app>/dist/ 底下。
+#   ⇒ 判据收窄成「**必须在某个 dist/ 目录下**」+「**体积得像回事**」两条。
+#   dist 之外那些只打印出来当**反例**，不参与判定。
+#
+#   ⚠️ 体积下限 10 MB 不是拍脑袋：runtime_strategy 是 bundled，产物里必然塞着
+#      便携 R（下载下来就 100 MB+），真产物是几百 MB；上面那些顶包最大的
+#      0.5 MB。中间隔着两个数量级，取 10 MB 不会误伤。
+MIN_BYTES <- 10 * 1024^2
+root <- sub("/+$", "", root)                 # 防命令行给的路径带尾斜杠
+all_pat <- list.files(root, pattern = PAT, recursive = TRUE, full.names = TRUE)
+all_pat <- all_pat[!grepl("\\.app/", all_pat, fixed = TRUE)]
+
+# ⚠️ 判据是「**相对 root 恰好是 `<app>/dist/…`**」，不是「路径里出现过 /dist/」。
+#    第一版就是后者，当场被自己的用例抓住：Electron 的依赖树里
+#        node_modules/electron/dist/Electron.app
+#    那一截**正好也叫 dist** ⇒ 顶包照样通过。这条我改完先跑了五棵合成树
+#    （run8 的 win/mac 实况 + 两个成功树 + 一个 dist 里放小文件的树），
+#    mac 那棵实况树红着回来的，才改成现在这样。
+rel <- substring(all_pat, nchar(root) + 2L)   # 去掉 "<root>/"
+in_dist <- grepl("^[^/]+/dist/", rel)
+big     <- file.info(all_pat)$size >= MIN_BYTES
+found   <- all_pat[in_dist & big]
+reject  <- all_pat[!(in_dist & big)]
+
+all_apps <- if (PLAT == "mac") {
+  d <- list.dirs(root, recursive = TRUE)
   d[grepl("\\.app$", d)]
 } else character(0)
+apps <- all_apps[grepl("^[^/]+/dist/", substring(all_apps, nchar(root) + 2L))]
+reject_apps <- setdiff(all_apps, apps)
+
+# 把**被否掉的**也打出来：日志里看得见"我看过这些、并且说清了为什么不算"，
+# 下一个人不用怀疑这一段是不是压根没跑。run8 那次 mac 的 Electron.app 就在
+# 这一类里（它是上游 Electron 自己的包，不是我们的产物）。
+if (length(reject) || length(reject_apps)) {
+  say("（另看到 %d 个同后缀的文件 / %d 个 .app 目录，**都不算产物**）",
+      length(reject), length(reject_apps))
+  for (f in head(reject, 6L))
+    say("    ✗ %s  %.1f MB", f, file.info(f)$size / 1024^2)
+  if (length(reject) > 6L) say("    …… 还有 %d 个", length(reject) - 6L)
+  for (a in head(reject_apps, 4L)) say("    ✗ %s/", a)
+  if (length(reject_apps) > 4L) say("    …… 还有 %d 个 .app", length(reject_apps) - 4L)
+}
 
 if (!length(found) && !length(apps)) {
-  say("没找到 %s 产物。看看上面的输出里 electron-builder 报了什么。",
-      if (PLAT == "mac") ".dmg / .app" else ".exe")
+  hr()
+  say("!! 没找到 %s 产物。", if (PLAT == "mac") ".dmg / .app" else ".exe")
+  say("   找的地方是：%s", file.path(root, "<app>", "dist"))
+  say("")
+  say("   ⚠️ 上面如果有一行 `✔ Successfully built Electron app`，**别信它**：")
+  say("      shinyelectron 的 build() 是无条件打这一句的，electron-builder 那")
+  say("      一步的返回码它根本没看（run_command_safe 是 error_on_status=FALSE，")
+  say("      validate_build_output 发现没有 dist/ 也只 warning 不 abort）。")
+  say("      真正的原因要在**再往上**的输出里找 —— 搜 `⨯` 那一行。")
+  say("      已知的两个：")
+  say("        · `⨯ Invalid version: \"...\"` —— _shinyelectron.yml 的 version")
+  say("          不是 semver（本脚本会从 DSAPP_VERSION 抠，见 version_semver）")
+  say("        · npm/electron 下载断掉（ECONNRESET，CI 上偶发）")
   quit(status = 1)
 }
 for (f in found) say("  %s  %.1f MB", f, file.info(f)$size / 1024^2)
