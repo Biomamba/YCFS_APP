@@ -179,7 +179,29 @@ jobs:
 
       - name: 打包
         shell: bash
-        run: Rscript --no-environ desktop/build_exe.R --plat=win --arch=x64 out
+        # ⚠️ npm 在 runner 上会偶发 ECONNRESET（2026-10-07 第 7 次跑就栽在这：
+        #    便携 R 那步已经好了 —— 日志里 shinyelectron 自己打的
+        #    "R 4.4.3 already installed at …" 就是预置生效的证据 —— 结果 npm install
+        #    拉到一半断掉，整条流水线假红）。给 npm 加退避重试，并且整体再来两遍。
+        # ⚠️ 重试前**必须**把 electron-app 删干净：上一遍会留下半截的 node_modules
+        #    （日志里那串 EPERM rmdir … dir-compare 就是在清它，没清掉），
+        #    在半截状态上叠会失败得更怪、报的错还跟真原因无关。
+        #    Electron 的下载缓存在 runner 的 ~/.cache/electron，重试不会再下一遍。
+        run: |
+          npm config set fetch-retries 5
+          npm config set fetch-retry-mintimeout 20000
+          npm config set fetch-retry-maxtimeout 180000
+          npm config set fetch-timeout 900000
+          npm config set maxsockets 4
+          for attempt in 1 2 3; do
+            echo "===== 打包 第 $attempt 次 ====="
+            if Rscript --no-environ desktop/build_exe.R --plat=win --arch=x64 out; then
+              echo "===== 第 $attempt 次成功 ====="; exit 0
+            fi
+            echo "!! 第 $attempt 次失败 —— 清掉半截的 electron-app 再来"
+            find out -maxdepth 3 -name electron-app -type d -exec rm -rf {} + 2>/dev/null || true
+          done
+          echo "!! 三次都没成"; exit 1
 
       - name: 列出产出
         shell: bash
@@ -336,7 +358,22 @@ jobs:
         run: Rscript --no-environ desktop/tests/seed_portable_r.R
 
       - name: 打包
-        run: Rscript --no-environ desktop/build_exe.R --plat=mac --arch=${{ matrix.arch }} out
+        # 理由和重试的写法见 win-exe 那条（npm ECONNRESET + 半截 node_modules）。
+        run: |
+          npm config set fetch-retries 5
+          npm config set fetch-retry-mintimeout 20000
+          npm config set fetch-retry-maxtimeout 180000
+          npm config set fetch-timeout 900000
+          npm config set maxsockets 4
+          for attempt in 1 2 3; do
+            echo "===== 打包 第 $attempt 次 ====="
+            if Rscript --no-environ desktop/build_exe.R --plat=mac --arch=${{ matrix.arch }} out; then
+              echo "===== 第 $attempt 次成功 ====="; exit 0
+            fi
+            echo "!! 第 $attempt 次失败 —— 清掉半截的 electron-app 再来"
+            find out -maxdepth 3 -name electron-app -type d -exec rm -rf {} + 2>/dev/null || true
+          done
+          echo "!! 三次都没成"; exit 1
 
       - name: ad-hoc 签名（没有 Developer ID 时的最低要求）
         run: |
