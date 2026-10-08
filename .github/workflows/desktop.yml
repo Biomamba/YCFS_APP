@@ -452,14 +452,38 @@ jobs:
           #       dist/<artifact 名>/<文件>
           #   所以真产物**恰好**在 dist 下第 2 层。maxdepth 2 之外一概不要。
           #   再叠一层**名字白名单**（四个产物族），两个都过才收。
+          #
+          # ⚠️⚠️ 2026-10-08 **第二次**真发 Release：上面那条**层数**判据自己错了。
+          #   它假设下载布局**恒为** `dist/<artifact>/<文件>` —— 那只对
+          #   **平铺上传**的 artifact 成立。win-exe / mac-app 上传的是
+          #       out/exe_out/*/dist/*.exe
+          #   upload-artifact 取**公共前缀** `out/exe_out` 当根，于是文件存成
+          #   `<项目目录>/dist/<文件>`，下载下来是第 **4** 层。后果：
+          #   **六条 job 全绿，而 flat/ 里只有 3 个 zip** —— 一个 .exe、两个 .dmg
+          #   全被层数判据滤掉了。是下面那条"必须 6 个"的兜底把它拦下来的
+          #   （当初没把兜底删掉，这次才没又发出一个缺安装包的 Release）。
+          #
+          #   所以判据改成看**产物自己的形状**，不再猜下载布局：
+          #     · electron-builder 的产物一定是某个 `dist/` 目录的**直接子文件**
+          #       （installer 就躺在 dist 下；`win-unpacked/` 里的东西在子目录里，不算）
+          #     · zip 是平铺上传的，正好落在下载树第 2 层
+          #   ⚠️ 为什么光有名字白名单不够：`win-unpacked/ds-app.exe`（213 MB 的
+          #      **解包体**）**也**匹配 `ds-app*.exe`。名字分不出"安装包"和
+          #      "解包出来的同一个程序" —— 必须看它躺在哪儿。
           while IFS= read -r f; do
             b="$(basename "$f")"
             case "$b" in
               DS_App-Windows-*.zip|DS_App-macOS-*.zip|ds-app*.exe|ds-app*.dmg) ;;
               *) echo "跳过（名字不在白名单里）：$f"; continue ;;
             esac
-            cp -v "$f" flat/
-          done < <(find dist -mindepth 2 -maxdepth 2 -type f \
+            _parent="$(basename "$(dirname "$f")")"
+            _depth="$(printf '%s' "${f#dist/}" | awk -F/ '{print NF}')"
+            if [ "$_parent" = "dist" ] || [ "$_depth" -eq 2 ]; then
+              cp -v "$f" flat/
+            else
+              echo "跳过（既不是 dist/ 的直接子文件，也不在第 2 层）：$f"
+            fi
+          done < <(find dist -type f \
                      \( -name '*.zip' -o -name '*.exe' -o -name '*.dmg' \) | sort)
 
           # ⚠️ 兜底不能只有一层（第七次的账）：白名单+层数都过了，仍然要数一遍
@@ -471,6 +495,12 @@ jobs:
           n="$(find flat -maxdepth 1 -type f | wc -l)"
           if [ "$n" -ne 6 ]; then
             echo "!! flat/ 里应该有 6 个产物，实际 $n 个："; ls -la flat/
+            # ★ 2026-10-08：把候选树也打出来。上一次失败时日志里只有 flat/ 的
+            #   3 个 zip，看不到"产物在 dist 的第 4 层"这件事，只能另开一轮
+            #   去翻别的 job 的日志。失败信息要能自己说明白。
+            echo "---- dist/ 下所有候选（按后缀筛过）----"
+            find dist -type f \( -name '*.zip' -o -name '*.exe' -o -name '*.dmg' \) \
+              | sed 's/^/   /' | head -60
             exit 1
           fi
 
