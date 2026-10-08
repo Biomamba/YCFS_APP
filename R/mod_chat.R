@@ -1255,6 +1255,10 @@ mod_chat_server <- function(id, state, engine) {
         sendKey       = ns("send_key"),
         input         = ns("input"),
         sendBtn       = ns("send"),
+        # ★ V17 item 3：中文输入法"句尾变拼音"—— 客户端在这里回填**按下发送
+        #   那一刻输入框里的原文**，和发送信号同批次上来，绕开服务端 input$
+        #   慢一拍的镜像。见 dsapp_chat_send() 里 `txt` 那段说明。
+        sendText      = ns("send_text"),
         # ★ V13.11 item 5：文献速递页把"新建对话 + 发这段提示词"的活交给
         #   本模块（见 R/mod_lit.R 顶上的说明）。那个页面**不可能**自己
         #   拼出这个名字 —— `chat-` 是本模块的命名空间，它硬编码的话，
@@ -1818,7 +1822,7 @@ mod_chat_server <- function(id, state, engine) {
     #'     那个刚建出来的对话就成了一条**空对话**留在列表里 —— 用户看到的是
     #'     "我点了开始检索，多出来一个空的对话，什么都没发生"。拿到 FALSE
     #'     的那一方负责把它收回去。
-    dsapp_chat_send <- function(extra = NULL) {
+    dsapp_chat_send <- function(extra = NULL, txt = NULL) {
       # ⚠️ 这里必须**同时**看 sending。
       #
       # rv$streaming 是在 dsapp_llm_start() 之后才置 TRUE 的，它前面那段
@@ -1848,7 +1852,22 @@ mod_chat_server <- function(id, state, engine) {
         rv$sending <- FALSE
       }, add = TRUE)
 
-      txt <- if (is.null(extra)) trimws(input$input %||% "") else trimws(extra)
+      # ★ V17 item 3：`txt` 是**客户端在按下发送的那一刻、从输入框里现读**的
+      #   原文（app.js 把它和发送信号塞进同一个 sendInput 批次）。
+      #
+      #   为什么要它：服务端手里的 input$input 是**慢一拍的镜像**（本仓有账），
+      #   而中文输入法是在 mousedown/click 那一刻才把候选词上屏的 —— 那一拍里
+      #   镜像里还留着句尾那段拼音，用户看到的就是"打的是汉字，发出去句尾
+      #   变成拼音、还少了几个字"。客户端把值一起送上来，这一拍就不存在了。
+      #
+      #   ⚠️ 判据用 `is.null(txt)` 而**不是** `nzchar(txt)`：客户端明确送上来
+      #      一个空串，意思是"框里真的是空的"，这时必须就地返回 FALSE，
+      #      **不能**回落到 input$input —— 那个镜像里很可能还留着用户刚删掉的
+      #      上一句。NULL 才是"客户端压根没送"（老页面 / JS 没装上），
+      #      那才回落到原来的路，行为一个字不变。
+      txt <- if (!is.null(extra)) trimws(extra)
+             else if (!is.null(txt)) trimws(txt)
+             else trimws(input$input %||% "")
       if (!nzchar(txt)) return(FALSE)
 
       # ⚠️ 这是只读的**最终闸门**，不是提示。前端把按钮置灰只是让人看得懂，
@@ -7332,7 +7351,12 @@ mod_chat_server <- function(id, state, engine) {
       agent_ver(agent_ver() + 1)
     })
 
-    observeEvent(input$send, dsapp_chat_send())
+    # ★ V17 item 3：`txt` 走客户端现读的原文（见 dsapp_chat_send 里那段说明）。
+    #   ⚠️ `isolate()` 不能省：observeEvent 的处理体是个响应式上下文，
+    #      不隔离的话 `input$send_text` 一变就会**再触发一次发送** ——
+    #      每敲一个字都发一条消息，比原来的 bug 还糟。
+    #      isolate 之后依赖只剩 input$send，语义和以前完全一致。
+    observeEvent(input$send, dsapp_chat_send(txt = isolate(input$send_text)))
 
     # ---- 「总结并生成报告」（V13.10 item 5）--------------------------------
     #
@@ -7448,7 +7472,9 @@ mod_chat_server <- function(id, state, engine) {
     })
 
     # Enter 发送（Shift+Enter 换行）：app.js 把回车转成这个事件
-    observeEvent(input$send_key, dsapp_chat_send())
+    # ★ V17 item 3：和上面「发送」按钮同一条 —— 用客户端现读的原文，
+    #   `isolate()` 的理由见那一处。
+    observeEvent(input$send_key, dsapp_chat_send(txt = isolate(input$send_text)))
 
     # 发送按钮的忙闲以服务端为准。
     #

@@ -909,6 +909,24 @@ mod_files_server <- function(id, state, active = NULL) {
     observeEvent(input$pick_conv, {
       sid <- as.character(input$pick_conv %||% "")
       if (!nzchar(sid)) return()
+      # ★★ V17 item 6（OA 审计查出来的越权）：`this.value` 是前端传上来的
+      #    **任意字符串** —— 上面那个 <select> 只列"我能看的"（喂它的
+      #    db_sessions_list 已经按 user_id 过滤过），但那只是**界面**上的约束，
+      #    服务端这一步从来没复查。手改一下 DOM 就能要求打开别人的对话。
+      #
+      #    ⚠️ 后果不是"界面显示错了"，比那严重得多：show_sid() 把这个 sid
+      #       原样交给 dsapp_ws_dir()，于是**别人工作区里的分析文件**会被
+      #       列出来、打包、下载 —— 而界面上一切正常、日志里一个错都没有。
+      #
+      #    同一个洞在 mod_chat.R 的 pick_session 那边早就堵上了（那儿有一模
+      #    一样的注释和判据）。这里是**同一类判据漏了一处**，不是新问题。
+      role <- db_session_role(sid, state$user_id,
+                              is_admin = dsapp_user_is_platform_admin(state$user),
+                              con = dsapp_db(cfg()))
+      if (!dsapp_role_can_view(role)) {
+        return(showNotification("这个对话不存在，或者没有共享给你",
+                                type = "warning", duration = 6))
+      }
       # 选回当前对话 = 取消定位，标题从「对话产物」变回「本对话产物」。
       # 不这么做的话，用户永远回不到"跟着言出法随页走"那个状态。
       if (identical(sid, state$chat_session_id)) {

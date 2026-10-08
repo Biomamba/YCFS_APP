@@ -708,7 +708,7 @@ dsapp_mail_drain <- function(cfg = dsapp_config(), max = 10L) {
   con <- dsapp_db(cfg)
   rows <- tryCatch(
     DBI::dbGetQuery(con,
-      "SELECT id, to_email, subject, body_md, base_dir, attach_path, kind
+      "SELECT id, to_email, subject, body_md, base_dir, attach_path, kind, user_id
          FROM mail_queue WHERE status = 'pending'
         ORDER BY id LIMIT ?", params = list(as.integer(max))),
     error = function(e) NULL)
@@ -732,7 +732,15 @@ dsapp_mail_drain <- function(cfg = dsapp_config(), max = 10L) {
       DBI::dbExecute(con,
         "UPDATE mail_queue SET status='sent', sent_at=?, last_error=''
           WHERE id = ?", params = list(dsapp_now(), as.integer(r$id)))
-      dsapp_audit("mail_sent", user_id = NULL, target = r$to_email,
+      # ★★ V17 item 6（OA 审计的 M1）：这里原来写死 `user_id = NULL`，于是
+      #    "谁收到了哪封信"这一行**没有归属** —— 后果不只是难看：
+      #    `dsapp_audit_list()` 按用户过滤时用的是 `AND user_id IN (...)`，
+      #    这些行会被整体**漏掉**，查一个人的投递记录永远是空的。
+      #    带上收件人 uid 之后，`dsapp_audit()` 还会顺手把 email 列也填上
+      #    （那一列存在的意义就是"账号被删了之后日志里还知道是谁"）。
+      #    ⚠️ 队列行本来就是一人一封（见 dsapp_mail_enqueue 的单人校验），
+      #      所以"这一行的 user_id"就是收件人，不存在张冠李戴。
+      dsapp_audit("mail_sent", user_id = r$user_id, target = r$to_email,
                   detail = sprintf("%s（%s）", r$subject, r$kind),
                   ok = TRUE, cfg = cfg, con = con)
     } else {

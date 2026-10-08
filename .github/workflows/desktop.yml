@@ -435,10 +435,55 @@ jobs:
 
       - name: 摊平 + 出校验和
         run: |
+          set -euo pipefail
           mkdir -p flat
-          find dist -type f \( -name '*.zip' -o -name '*.exe' -o -name '*.dmg' \) \
-            -exec cp -v {} flat/ \;
-          cd flat && sha256sum * | tee SHA256SUMS.txt
+          # ⚠️⚠️ 2026-10-08：这里原来是**全局递归**的
+          #     `find dist -type f \( -name '*.zip' … \) -exec cp {} flat/ \;`
+          #   第一次真发 Release 时它捞进来一个 **480 字节的 `example.zip`**，
+          #   和 .exe/.dmg 并排挂在了 Release 上。
+          #   它是 `R/library/zip/example.zip` —— R 的 zip 包自带的测试夹具
+          #   （条目就四个：example/、example/dir/、example/dir/file2、example/file1）。
+          #   来源：mac-app 那条 artifact 里带着**整个 .app**，而 .app 里是便携 R，
+          #   于是 find 一路走进了 R 的库树。
+          #   —— 和「第七次」同族（那次是 signtool.exe / 7z-arm64.exe 顶包）：
+          #      **按后缀全局找**必然把依赖当成产品。
+          #
+          #   判据钉在**结构**上：download-artifact 的布局恒为
+          #       dist/<artifact 名>/<文件>
+          #   所以真产物**恰好**在 dist 下第 2 层。maxdepth 2 之外一概不要。
+          #   再叠一层**名字白名单**（四个产物族），两个都过才收。
+          while IFS= read -r f; do
+            b="$(basename "$f")"
+            case "$b" in
+              DS_App-Windows-*.zip|DS_App-macOS-*.zip|ds-app*.exe|ds-app*.dmg) ;;
+              *) echo "跳过（名字不在白名单里）：$f"; continue ;;
+            esac
+            cp -v "$f" flat/
+          done < <(find dist -mindepth 2 -maxdepth 2 -type f \
+                     \( -name '*.zip' -o -name '*.exe' -o -name '*.dmg' \) | sort)
+
+          # ⚠️ 兜底不能只有一层（第七次的账）：白名单+层数都过了，仍然要数一遍
+          #    到底拿到了几个。四个产物族，一共 **6** 个：
+          #      Windows zip / macOS-arm64 zip / macOS-x86_64 zip / .exe /
+          #      arm64 .dmg / x64 .dmg
+          #    （别照着"四个族"写成 4 —— 写这段时我自己先写错了一次。）
+          #    2026-10-08 那次真 Release 上就是这 6 个，数目对得上再放行。
+          n="$(find flat -maxdepth 1 -type f | wc -l)"
+          if [ "$n" -ne 6 ]; then
+            echo "!! flat/ 里应该有 6 个产物，实际 $n 个："; ls -la flat/
+            exit 1
+          fi
+
+          # ⚠️ 名字里的空格 GitHub 上传时会**换成点**（`ds-app Setup 16.10.0.exe`
+          #    → `ds-app.Setup.16.10.0.exe`）。第一版的 SHA256SUMS.txt 是拿改名前
+          #    的名字算的，于是 `sha256sum -c` 对着 .exe 那行报 No such file。
+          #    传上去的名字必须和这里算校验和用的名字**逐字相同** ⇒ 先改名再算。
+          cd flat
+          for f in *; do
+            g="$(printf '%s' "$f" | tr ' ' '.')"
+            [ "$f" = "$g" ] || mv -v -- "$f" "$g"
+          done
+          sha256sum -- * | tee SHA256SUMS.txt
           echo "---"; ls -la
 
       - name: 标签

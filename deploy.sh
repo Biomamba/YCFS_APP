@@ -298,7 +298,10 @@ else
 fi
 
 hdr "完成"
-echo "公网访问：http://sw2-primary1.xiyoucloud.pro:34038/YCFS_APP/"
+# ⚠️ V17 item 5：这里原来把对外域名写死了，而本脚本是**要进公开仓库**的
+#    （见 desktop/pack_github.sh 的清单）。改成回显本机地址 / 环境变量里
+#    那个：域名只对内部发放，不进仓库。
+echo "访问地址：${APP_URL}"
 echo
 echo "首次使用："
 echo "  1. 打开「设置」页，选厂商并填入 API Key（只存在浏览器会话内存里）"

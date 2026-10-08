@@ -235,6 +235,38 @@ var DSAPP_PING_DEAD_MS = 30000;
  *    看见，而且到那时离断线已经过了 DSAPP_HEAL_GRACE_MS（20 秒）。 */
 var DSAPP_OFFLINE_CARD_MS = 30000;
 
+/* ★★ V17 item 1（2026-10-08）：同一件事**最多多久提示一次**。
+ *
+ *   用户原话：「服务器现在还是经常未响应，这个提示能不能显示的不要这么频繁，
+ *   即使真的断了，也请间隔一段时间再提示」。
+ *
+ *   ⚠️ 上面那两个阈值（30 秒判死 / 再 30 秒卡片）管的是「**多久之后第一次**
+ *      说话」，它们拦不住的是**同一件事被反复说**：链路抖一下就是一轮
+ *      "断 → 恢复 → 又断"，每一轮都从零开始计时、都会把那两句话说一遍。
+ *      用户看到的不是"阈值太短"，是"刚说完又说一遍"。
+ *      所以这里管的是**说话的频率本身**：任何一条提示画上屏之后，静默期之内
+ *      不再画第二条 —— 不管中间状态翻了几次。
+ *
+ *   ⚠️ 它**不碰** `window.dsappNet.state`。那个状态是补发队列的闸门（item 4），
+ *      而且"到底断没断"这件事不该因为"我不想吵你"就被说成没断。
+ *      静默期里挡下的那条会记一笔（dsappPromptOwed），由看门狗在静默期一过
+ *      补上 —— 是**推迟**，不是**吞掉**。
+ *
+ *   ⚠️ 自愈那条（dsappHealNote）**不走这个闸门**，原因见那个函数：它说的不是
+ *      "好像是断了"，而是一句具体的、新的话（"它一回来这页会自己刷新"），
+ *      说完就真的刷新了 —— 推迟它等于让用户在不知情的情况下干等。
+ *      闸门只装在 dsappOfflineWarn / dsappOfflineEscalate 这两条**通用**报警
+ *      路上。（用户自己点「详情」那条也不挡：那是他要看的。） */
+var DSAPP_OFFLINE_QUIET_MS = 60000;
+
+/* 上一次**真的把提示画上屏**的时刻（0 = 这个页面还没画过）。
+ * ⚠️ 故意**不**随"回到 up"归零：归零的话，抖动（断→好→断）每一轮都能立刻
+ *    再提示一次，等于没装闸门。也不存 sessionStorage —— 自愈整页重载之后
+ *    确实从头开始，但那一轮的账归 DSAPP_HEAL_MAX 那个刹车管，是另一件事。 */
+var dsappPromptAt = 0;
+/* 静默期里挡下了一条提示、欠着：静默期一到必须补上（看门狗每 2 秒问一次）。 */
+var dsappPromptOwed = false;
+
 /* 这一轮"不是 up"是从什么时候开始的（毫秒时刻；0 = 现在是 up）。
  * ⚠️ 它**跨 silent↔down 不重置**：换的只是说法，断这件事从更早就开始了。
  *    （所以不能用 dsappNet.since —— 那个每次换档都会刷新。）
@@ -356,6 +388,10 @@ function dsappNetSet(state, why) {
   if (state === "up") {
     dsappOutageSince = 0;
     dsappCardDismissed = false;
+    /* ★ V17 item 1：好了就没什么好补的了（欠账只在"还断着"的时候有意义）。
+     *   ⚠️ 只清欠账，**不动** dsappPromptAt —— 静默期必须跨"好了一下又断"
+     *      活着，否则抖动每一轮都能立刻再提示一次，闸门等于没有。 */
+    dsappPromptOwed = false;
   } else if (n.state === "up") {
     dsappOutageSince = Date.now();
   }
@@ -548,11 +584,55 @@ function dsappOfflineHide() {
  * ⚠️ 小条**不遮鼠标**（CSS 里 `pointer-events:none`，只有那颗「详情」例外）。
  *    它不是遮罩，是提示；能不能点页面由状态决定（网断了页面本来也点不动，
  *    但那是服务端的事，前端不该再叠一层假的）。 */
+/* ---- 提示的静默期：三个小函数，配套使用（V17 item 1）--------------------
+ *
+ * 分三个而不是一个，是刻意的：**"能不能说"和"说过了"是两件事**。
+ *   dsappPromptAllowed() —— 现在能不能画（读闸门）；
+ *   dsappPromptMark()    —— 画上去了，记时刻、把欠账勾掉（**只在真的画了**
+ *                           的时候调，早退那条路不算）；
+ *   dsappPromptOwe()     —— 被闸门挡下了，记一笔欠账。
+ * 只写一个"if (能说) 说()"的话，"挡下的那条谁来补"就没有地方记了。 */
+function dsappPromptAllowed() {
+  return Date.now() - dsappPromptAt >= DSAPP_OFFLINE_QUIET_MS;
+}
+function dsappPromptMark() {
+  dsappPromptAt = Date.now();
+  dsappPromptOwed = false;
+}
+function dsappPromptOwe() {
+  dsappPromptOwed = true;
+}
+
+/* 静默期一到，把欠着的那条补上（看门狗每 2 秒调一次）。
+ *
+ * ⚠️ 必须先清欠账再决定画什么：dsappOfflineEscalate 自己也会记欠账
+ *    （它被闸门挡下的时候），顺序反了会自己把自己重新记上一笔，
+ *    那个欠账就永远勾不掉了。
+ * ⚠️ 补的时候**先问卡片那条路**：它自己会判断"断够久了没有 / 用户是不是
+ *    说了先等一下"。够久就直接出卡片（比小条说得全），否则才退回小条 ——
+ *    于是"静默期结束"这一刻看到的东西，跟没装闸门时看到的是同一个档位。 */
+function dsappOfflineOwedFlush() {
+  if (!dsappPromptOwed || !dsappPromptAllowed()) return;
+  dsappPromptOwed = false;
+  var st = window.dsappNet.state;
+  if (st === "up") return;              /* 这中间已经好了，没什么要说的 */
+  if (dsappOfflineEscalate(st)) return; /* 卡片出来了（或本来就挂着），够了 */
+  dsappOfflineMini(st === "silent" ? "silent" : "down");
+}
+
 function dsappOfflineMini(kind) {
   var m = document.getElementById("dsapp-offline-mini");
   /* 原因没变就不重画 —— 同 dsappOfflineShow 里那句，防鼠标停在
    * 正在被删掉的按钮上。 */
   if (m && m.getAttribute("data-kind") === kind) return;
+  /* ★ V17 item 1：闸门**记在这里**，不记在各个调用点 —— 小条是唯一会
+   *   反复上屏的那块提示，而它的入口有五六个（判死、socket 断、用户点
+   *   「先等一下」、静默期补账、详情……）。记在函数里，就不会有人加了一个
+   *   新入口却忘了记账（"同一个事实只有一个写入口"那条规矩的同一件事）。
+   *   ⚠️ 位置必须在上面那句早退**之后**：早退 = 屏幕上什么变化都没有，
+   *      那不是一次提示，不该续静默期（否则一直断着时闸门会被无限续期，
+   *      反而变成"永远不再说话"）。 */
+  dsappPromptMark();
   if (m && m.parentNode) m.parentNode.removeChild(m);
   m = document.createElement("div");
   m.id = "dsapp-offline-mini";
@@ -609,6 +689,13 @@ function dsappOfflineWarn(kind) {
     return;
   }
   dsappNetSet(kind === "silent" ? "silent" : "down", "dsappOfflineWarn");
+  /* ★★ V17 item 1：闸门装在这里，不装在 dsappOfflineMini 里。
+   *   小条还有别的入口，而**只有这一条**是"机器自己觉得不对劲了"——
+   *   用户点「先等一下」、静默期补账、点详情那几条都不该被挡（前两条是
+   *   用户自己的动作，第三条本来就是他要看的）。
+   *   ⚠️ 挡的是**画**，不是**状态**：上面那句 dsappNetSet 照跑，
+   *      "到底断没断"一个字不改 —— 补发队列的闸门读的就是它。 */
+  if (!dsappPromptAllowed()) { dsappPromptOwe(); return; }
   dsappOfflineMini(kind === "silent" ? "silent" : "down");
 }
 
@@ -628,9 +715,17 @@ function dsappOfflineWarn(kind) {
  *
  * 幂等：dsappOfflineShow 对同一个 kind 会早退，所以每 2 秒调一次是安全的。 */
 function dsappOfflineEscalate(st) {
-  if (dsappCardDismissed || !(dsappOutageSince > 0)) return;
-  if (Date.now() - dsappOutageSince < DSAPP_OFFLINE_CARD_MS) return;
+  if (dsappCardDismissed || !(dsappOutageSince > 0)) return false;
+  if (Date.now() - dsappOutageSince < DSAPP_OFFLINE_CARD_MS) return false;
+  /* ★★ V17 item 1：卡片也要过静默期那道闸门（用户原话「即使真的断了，
+   *   也请间隔一段时间再提示」）。挡下时记欠账 —— 静默期一到，
+   *   dsappOfflineOwedFlush 会再问一遍这里，该出还是出。 */
+  if (!dsappPromptAllowed()) { dsappPromptOwe(); return false; }
   dsappOfflineShow(st === "silent" ? "silent" : "disconnected");
+  /* ★ 返回值只给"补账"那条路用：true = 这幅画面已经有人说话了，别再叠小条。
+   *   ⚠️ 注意"卡片本来就挂着、内容一模一样"那条早退路也返回 true ——
+   *      对补账来说那正是要的答案（屏幕上已经有提示了）。 */
+  return true;
 }
 
 function dsappOfflineShow(kind) {
@@ -645,6 +740,12 @@ function dsappOfflineShow(kind) {
   /* 已经挂着一块了：只在**原因变了**的时候换掉，否则每 2 秒重画一次，
    * 用户的鼠标会停在正在被删掉的按钮上。 */
   if (d && d.getAttribute("data-kind") === kind) return;
+  /* ★ V17 item 1：卡片上屏也算一次提示（同 dsappOfflineMini 里那条）。
+   *   同样在早退之后 —— 每 2 秒重画一次同样内容的卡片不是"又提示了一遍"。
+   *   ⚠️ 自愈那条（dsappHealNote）走的就是这个函数，也就是说**自愈的卡片
+   *      会续静默期**，但它自己不被闸门挡（它说的是一句新话，见常量那段）。
+   *      两者不矛盾：闸门管的是"别把同一件事反复说"，不是说过的账不算数。 */
+  dsappPromptMark();
 
   /* ⚠️ 这里是 HTML 字符串，**不是** Markdown：想加粗只能用 <b>，
    *    写 `**这样**` 会原样显示成带星号的字。（mod_lit.R 里同一个坑。） */
@@ -959,13 +1060,20 @@ setInterval(function () {
        *   用户已经为此被吓过好几次了。（阈值已抬到 30 秒，但"忙"和"死"
        *   从浏览器这边本来就分不开 —— 所以判死那一刻更不该下重手。） */
       dsappOfflineWarn("silent");
-      return;
+    } else {
+      /* 还断着 —— 交给它判断"够不够久、该不该把卡片铺出来了"。
+       * ⚠️ 这一段里**不许**出现 dsappOfflineShow：判死那一支只出小条，
+       *    铺整页卡片是另一条路（自检盯着这个形状）。 */
+      dsappOfflineEscalate(st);
     }
-    /* 还断着 —— 交给它判断"够不够久、该不该把卡片铺出来了"。
-     * ⚠️ 这一段里**不许**出现 dsappOfflineShow：判死那一支只出小条，
-     *    铺整页卡片是另一条路（自检盯着这个形状）。 */
-    dsappOfflineEscalate(st);
   }
+  /* ★ V17 item 1：静默期挡下的那条提示在这里补上（"推迟，不是吞掉"）。
+   *   ⚠️ 位置在**判死那个 if 块外面**，故意的：断线期间只有第一拍走第一支
+   *      （那一拍把状态翻成 silent/down），此后每一拍都走 else —— 补账要是
+   *      写在第一支里，欠下的那条就永远没人来补，而屏幕上看着一切正常。
+   *      补账自己也不读 DOM、不判连接：两个判断分别在 dsappPromptAllowed()
+   *      和状态里，看门狗这一段仍然只认状态。 */
+  dsappOfflineOwedFlush();
 }, 2000);
 
 /* ---- 左侧栏导航（V6 item 5）---------------------------------------------- */
@@ -1288,6 +1396,31 @@ Shiny.addCustomMessageHandler("dsapp:askbox", function (m) {
  * 另外 keydown 会随按住不放反复触发，用 e.repeat 挡掉。 */
 var dsappSendSeq = 0;
 
+/* ★ V17 item 3（用户："打好的汉字，点击发送后句尾会有一部分变成拼音，并且少
+ *   几个字"）：**发送时把输入框里的原文一起送上去。**
+ *
+ * 为什么会这样：服务端手里的 `input$input` 是**慢一拍的镜像**（本仓有账）。
+ * 纯英文打字看不出来 —— 打完字到伸手点按钮之间隔着几百毫秒，值早同步过去了。
+ * 中文输入法把这段时间压成了零：候选词是在 **mousedown/click 那一刻**才上屏的，
+ * 而服务端手上还是上屏**之前**那一版 —— 句尾还是没提交的拼音，末尾那几个
+ * 字干脆还没进 value。用户看到的就是"发出去的是拼音、还少了几个字"。
+ *
+ * 修法：在按下发送的**同一个 JS 事件里**把 `box.value` 读出来，用
+ * `Shiny.setInputValue` 和发送信号一起送 —— 同一次事件派发 ⇒ 同一个 tick ⇒
+ * `sendInput` 会把它俩装进**同一个批次**，服务端那一拍里两个值同时到位。
+ * 服务端优先用它（见 R/mod_chat.R 里 `dsapp_chat_send` 的 `txt`）。
+ *
+ * ⚠️ 组字**没结束**时绝不能调用它：那一刻 `box.value` 里就是拼音，
+ *    送上去等于把 bug 从服务端搬到客户端。调用点都已经先挡掉组字态。
+ * ⚠️ 没有 `dsappIds.sendText`（老服务端）时静默跳过 —— 那时行为退回到
+ *    原来的样子（可能仍有 bug），但绝不会更坏。 */
+function dsappPushSendText(box) {
+  if (!box || !dsappIds.sendText) return;
+  try {
+    Shiny.setInputValue(dsappIds.sendText, box.value, { priority: "event" });
+  } catch (err) { /* 记账失败绝不连累发送本身 */ }
+}
+
 document.addEventListener("keydown", function (e) {
   if (e.key !== "Enter" || e.shiftKey) return;
   if (e.repeat) return;                 /* 按住回车不放，别连发 */
@@ -1332,6 +1465,9 @@ document.addEventListener("keydown", function (e) {
    * 服务端也会拦重复请求（mod_chat.R 的 dsapp_chat_send），但那是兜底，
    * 用户看不见；按钮立刻变灰才是他能感知到的反馈。 */
   dsappSetBusy(true);
+  /* ★ V17 item 3：原文和发送信号必须**同批次**（见 dsappPushSendText 的说明）。
+   *   顺序无所谓，同一个 tick 里的 setInputValue 会装进同一个批次。 */
+  dsappPushSendText(e.target);
   dsappSendSeq += 1;
   Shiny.setInputValue(dsappIds.sendKey, dsappSendSeq, { priority: "event" });
 });
@@ -1348,11 +1484,21 @@ document.addEventListener("keydown", function (e) {
  *    是拦不住它的 —— 那样只会变成"按钮没变灰，但拼音照样发出去了"。
  *    挡完这一下，用户再点一次（那时组字已结束）即可正常发送。 */
 document.addEventListener("click", function (e) {
-  if (!dsappComposing) return;
   var btn = e.target.closest && e.target.closest("button");
   if (!btn || !dsappIds.sendBtn || btn.id !== dsappIds.sendBtn) return;
-  e.preventDefault();
-  e.stopPropagation();
+
+  if (dsappComposing) {
+    /* 组字还没结束：这一下作废（理由见上面那段）。⚡ 这里**不能**顺手调
+     * dsappPushSendText —— 此刻 value 里是拼音。 */
+    e.preventDefault();
+    e.stopPropagation();
+    return;
+  }
+
+  /* ★ V17 item 3：把此刻输入框里的原文，和 Shiny 自己那份 `input$send`
+   *   装进同一个批次。这里在**捕获阶段**、Shiny 的按钮处理器（冒泡阶段）
+   *   之前跑，但两者同属一次事件派发 ⇒ 同一个 tick ⇒ 同一个 sendInput 批次。 */
+  dsappPushSendText(dsappIds.input ? document.getElementById(dsappIds.input) : null);
 }, true);
 
 /* 点"发送"按钮同理：Shiny 自己的 click 处理器照常触发（置灰不取消本次

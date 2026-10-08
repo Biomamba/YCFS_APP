@@ -3,10 +3,11 @@
 R Shiny 版生信数据分析助手。部署在 Shiny Server 下，与服务器上已有的 19 个
 R 应用走同一套机制。
 
-访问地址：**http://sw2-primary1.xiyoucloud.pro:34038/YCFS_APP/**
-（⚠️ 这是**改完名之后**的地址。到 2026-09-24 为止这台机器上还没改，
-能打开的仍然是 `…/DS_App/` —— 判断线上 URL 一律以 `ls /srv/shiny-server/`
-为准，别信这一行。）
+访问地址：**`http://<服务器地址>:34038/YCFS_APP/`**
+
+> ⚠️ V17 item 5：这里原来写的是本站的**对外域名**，而这份文档是要进公开
+> 仓库的（见 `desktop/pack_github.sh` 的清单）。**域名只对内部发放**，
+> 一律不回显；判断线上路径以 `ls /srv/shiny-server/` 为准。
 
 > ★ V13.7 item 8 起，URL 里的路径是 **`/YCFS_APP`**（原来是 `/DS_App`）。
 > 用户的要求是「部署时网站显示的最终文件夹需要从 …/DS_App/，变为 YCFS_APP」。

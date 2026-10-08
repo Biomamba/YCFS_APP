@@ -21920,6 +21920,146 @@ section("V13.11 item 7：服务端不应答时前端要能自己发现")
   })
 }
 
+# =============================================================================
+section("V17 item 1：断线提示的静默期（同一件事最多多久说一次）")
+# =============================================================================
+#
+# 用户原话：「服务器现在还是经常未响应，这个提示能不能显示的不要这么频繁，
+# 即使真的断了，也请间隔一段时间再提示」。
+#
+# ⚠️ 上面那个 section 里的阈值（判死 30 秒 / 卡片再 30 秒）管的是"多久之后
+#    **第一次**说话"，拦不住"同一件事被反复说"——链路抖一下就是一轮
+#    "断 → 好 → 又断"，每轮都从零计时、都会把那两句话说一遍。这一节盯的是
+#    新加的那道闸门（DSAPP_OFFLINE_QUIET_MS + Allowed/Mark/Owe/Flush 四个函数）。
+#
+# ⚠️⚠️ 这一节**全是静态断言**（读源码），所以它证明的是"形状还在"，
+#    **不是"行为对"**。行为那半边在同目录的 tests/ui_v17/probe_quiet.py
+#    （真浏览器 + 真节点），那边配了 5 个变异做阳性对照 ——
+#    **改这里的任何一条之前先跑那边**，别把一条只在源码上成立的规矩当成功能。
+{
+  jsc <- strip_js_comments(paste(readLines("www/app.js", warn = FALSE),
+                                 collapse = "\n"))
+  js_fn2 <- function(nm) {
+    m <- regexpr(paste0("function ", nm, "\\s*\\([^)]*\\)\\s*\\{"), jsc)
+    dsapp_block_at(jsc, m)
+  }
+
+  chk("★★★ 静默期 DSAPP_OFFLINE_QUIET_MS 是个正经的间隔", {
+    m <- regmatches(jsc, regexpr("DSAPP_OFFLINE_QUIET_MS = [0-9]+", jsc))
+    if (!length(m)) {
+      FALSE
+    } else {
+      q <- as.numeric(sub(".*= ", "", m))
+      # 下限：比一拍心跳长，否则等于没设闸门（每拍都能说一遍）。
+      # 上限 10 分钟：真断了也不能一直不吭声。
+      q >= DSAPP_PING_MS && q <= 600000
+    }
+  })
+
+  chk("★★★ 「说过了」这个事实只有一个写入口，而且两件事一起写", {
+    # 只记时刻不勾欠账 → 被挡下的那条永远补不上（静默期一过没人记得它）；
+    # 只勾欠账不记时刻 → 闸门永远开着，等于没有。
+    body <- js_fn2("dsappPromptMark")
+    if (!nzchar(body)) cat("       抠不出 dsappPromptMark\n")
+    nzchar(body) &&
+      grepl("dsappPromptAt = Date.now()", body, fixed = TRUE) &&
+      grepl("dsappPromptOwed = false", body, fixed = TRUE)
+  })
+
+  chk("★★★ 闸门记在**函数里**，而且记在早退之后（否则会自己给自己续期）", {
+    # 记在调用点的话，将来加一个新入口就会漏记（本仓"同一个事实只有一个
+    # 写入口"那条规矩）。记在早退**之前**的话：一直断着时每 2 秒重画一次
+    # 同样的小条也算"说过话"，静默期被无限续期 ⇒ 变成永远不再说话。
+    body <- js_fn2("dsappOfflineMini")
+    if (!nzchar(body)) cat("       抠不出 dsappOfflineMini\n")
+    i_ret <- regexpr('data-kind") === kind) return', body, fixed = TRUE)
+    i_mk  <- regexpr("dsappPromptMark()", body, fixed = TRUE)
+    if (i_mk < 0) cat("       dsappOfflineMini 里没有 dsappPromptMark()\n")
+    if (i_ret > 0 && i_mk > 0 && i_mk < i_ret) {
+      cat("       记账写在了早退**之前**，静默期会被无限续期\n")
+    }
+    nzchar(body) && i_ret > 0 && i_mk > 0 && i_mk > i_ret
+  })
+
+  chk("★★★ 两条**通用**报警路都装了闸门（小条 + 大卡片）", {
+    w <- js_fn2("dsappOfflineWarn")
+    e <- js_fn2("dsappOfflineEscalate")
+    if (!nzchar(w) || !nzchar(e)) cat("       抠不出 Warn / Escalate\n")
+    nzchar(w) && nzchar(e) &&
+      grepl("dsappPromptAllowed()", w, fixed = TRUE) &&
+      grepl("dsappPromptOwe()", w, fixed = TRUE) &&
+      grepl("dsappPromptAllowed()", e, fixed = TRUE) &&
+      grepl("dsappPromptOwe()", e, fixed = TRUE)
+  })
+
+  chk("★★★ 挡的是**提示**，不是**事实**（状态照样翻）", {
+    # 静默期里最危险的一种改法：为了"不吵用户"干脆连状态一起不写。
+    # 状态是补发队列的闸门（item 4），也决定自愈要不要动手 —— 少写一次，
+    # 用户点下去的东西就永远不会被补发，而屏幕上什么都看不出来。
+    body <- js_fn2("dsappOfflineWarn")
+    if (!nzchar(body)) cat("       抠不出 dsappOfflineWarn\n")
+    i_set <- regexpr("dsappNetSet(", body, fixed = TRUE)
+    i_gate <- regexpr("dsappPromptAllowed()", body, fixed = TRUE)
+    nzchar(body) && i_set > 0 && i_gate > 0 && i_set < i_gate
+  })
+
+  chk("★★★ 回到 up 只清欠账，**不动**静默期的钟", {
+    # 动了钟（归零）的话，"断 → 好 → 又断"每一轮都能立刻再提示一次 ——
+    # 那正是用户抱怨的那个形状，闸门等于没装。
+    body <- js_fn2("dsappNetSet")
+    if (!nzchar(body)) cat("       抠不出 dsappNetSet\n")
+    nzchar(body) &&
+      grepl("dsappPromptOwed = false", body, fixed = TRUE) &&
+      !grepl("dsappPromptAt = 0", body, fixed = TRUE)
+  })
+
+  chk("★★★ 被挡下的那条要有人来补，而且补的那一下在**看门狗那一块之外**", {
+    # ⚠️ 判据是**位置**不是"存不存在"：整个文件里 grep 这个名字恒为真。
+    #    为什么必须在判死那个 if 的**第一支之外**：断线期间只有**第一拍**
+    #    走第一支（那一拍把状态翻成 silent/down），此后每一拍都走 else。
+    #    补账要是写在第一支里，欠下的那条就永远等不到人来补 —— 而屏幕上
+    #    看着一切正常（小条挂着、状态也对），只是永远少那一句话。
+    m <- regexpr("if \\(Date\\.now\\(\\) - dsappLastPing > DSAPP_PING_DEAD_MS\\)\\s*\\{",
+                 jsc)
+    seg <- dsapp_block_at(jsc, m)
+    if (!nzchar(seg)) {
+      FALSE
+    } else {
+      blk_end <- m + nchar(seg) - 1L
+      p_flush <- regexpr("dsappOfflineOwedFlush\\(\\);", jsc)
+      if (p_flush < 0) cat("       看门狗里没有补账那一下\n")
+      if (p_flush > 0 && p_flush < blk_end) {
+        cat("       补账写在了判死那个 if 块的**第一支**里：断线期间只有第一拍",
+            "走那一支，欠下的那条再也没人补\n")
+      }
+      p_flush > blk_end
+    }
+  })
+
+  chk("★★★ 补账先问卡片那条路（够久就直接出卡片，别退回小条）", {
+    body <- js_fn2("dsappOfflineOwedFlush")
+    if (!nzchar(body)) cat("       抠不出 dsappOfflineOwedFlush\n")
+    nzchar(body) &&
+      grepl("dsappOfflineEscalate(", body, fixed = TRUE) &&
+      grepl("dsappOfflineMini(", body, fixed = TRUE) &&
+      # 顺序：先问 Escalate、后画小条
+      regexpr("dsappOfflineEscalate(", body, fixed = TRUE) <
+        regexpr("dsappOfflineMini(", body, fixed = TRUE)
+  })
+
+  chk("★★★ 自愈那条**不装**闸门（它说的是一句新话，说完就真刷新了）", {
+    # 反向断言。自愈的卡片是在 disconnected 之后 DSAPP_HEAL_GRACE_MS 才出现的，
+    # 而那之前多半已经出过小条 ⇒ 一定落在静默期里。挡了它，"它一回来这页会
+    # 自己刷新"这句就没人看见，用户会在不知情的情况下干等。
+    body <- js_fn2("dsappHealNote")
+    if (!nzchar(body)) cat("       抠不出 dsappHealNote\n")
+    if (grepl("dsappPromptAllowed", body, fixed = TRUE)) {
+      cat("       自愈那条被闸门挡上了，那几句话会写进空气里\n")
+    }
+    nzchar(body) && !grepl("dsappPromptAllowed", body, fixed = TRUE)
+  })
+}
+
 section("V13.11 item 8：更新按钮置底 + 离开时提醒未确认的改动（判据见 V13.12 item 19）")
 
 {

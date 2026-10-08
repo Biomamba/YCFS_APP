@@ -66,16 +66,69 @@ if (!identical(who, "shiny")) {
 }
 
 # ---- 闸 2：目录与 data_root -------------------------------------------------
+#
+# ★★ 2026-10-08 加固。原来这里**只**判 `R/files.R` 在不在，于是一个
+#    **长得和应用根一模一样的目录**能混过去：`~/dsapp_build/github_YCFS_APP`
+#    —— 那是 `desktop/pack_github.sh` 拼出来准备推 GitHub 的**打包仓**，
+#    `R/files.R` 当然有（整棵源码都在），但它**没有 data/**。
+#
+#    于是一路走到下面 `dsapp_config()`：应用目录下建不出 data/ ⇒ 它**静默
+#    回落**到 `/home/shiny/.local/share/DS_App/data` ⇒ 那个路径也不存在 ⇒
+#    `normalizePath(mustWork = TRUE)` 抛
+#
+#        path[1]="/home/shiny/.local/share/DS_App/data": No such file or directory
+#
+#    —— 一句**指向用户从没提过的路径**的报错。用户看到的和真正的原因
+#    （"你在打包仓里跑，不是应用根"）之间隔了两层静默降级。
+#    （同族：本仓「报错指向完全无关的地方」那几笔。）
+#
+#    修法：把"这就是应用根"的判据钉在**只有真应用根才有的东西**上 ——
+#    `data/` 是那条分界线（打包仓按设计排除它，见 pack_github.sh 的 EX 表）。
+#    并且把 data_root 那一步的失败**翻译成人话**，别再让它以 normalizePath
+#    的原文示人。
 app_dir <- normalizePath(getwd(), mustWork = TRUE)
+APP_ROOT_HINT <- "/data3/biomamba/analysis/DS_App"
 if (!file.exists(file.path(app_dir, "R", "files.R"))) {
-  stop("请在应用根目录里跑（现在是 ", app_dir, "）", call. = FALSE)
+  stop(sprintf(paste0(
+    "请在应用根目录里跑（现在是 %s）。\n",
+    "  应用根 = 含 R/ 与 data/ 的那个目录，本机是 %s"), app_dir, APP_ROOT_HINT),
+    call. = FALSE)
+}
+if (!dir.exists(file.path(app_dir, "data"))) {
+  stop(sprintf(paste0(
+    "这个目录里有 R/ 但没有 data/ —— 它多半是**打包仓**，不是应用根。\n",
+    "  现在在：%s\n",
+    "  应该去：%s\n",
+    "  ⚠️ 别在打包仓里跑这个脚本：那里没有生产库，dsapp_config() 会**静默**\n",
+    "     回落到 ~/.local/share 下的另一个数据目录（不存在，于是报一句和\n",
+    "     真正原因毫无关系的 normalizePath 错）。"),
+    app_dir, APP_ROOT_HINT), call. = FALSE)
 }
 suppressWarnings(suppressMessages(
   for (f in list.files("R", full.names = TRUE)) source(f, local = globalenv())
 ))
 
 cfg <- dsapp_config()
-dr  <- normalizePath(cfg$data_root, mustWork = TRUE)
+# ⚠️ 这里**故意**不用 mustWork = TRUE：先自己判一下在不在，好把话说清楚。
+#    用 mustWork 的话，路径不存在时抛的是 normalizePath 的原文，读的人
+#    根本看不出"你跑错目录了"。
+raw_dr <- cfg$data_root
+if (is.null(raw_dr) || length(raw_dr) != 1L || is.na(raw_dr) ||
+    !dir.exists(raw_dr)) {
+  stop(sprintf(paste0(
+    "数据根不存在：%s\n",
+    "  两种可能，下面两个值一看便知是哪种：\n",
+    "     ① 跑错目录了（没在应用根里跑） ② DSAPP_DATA_ROOT 写错了\n",
+    "  当前工作目录：%s\n",
+    "  DSAPP_DATA_ROOT（.Renviron）：%s\n",
+    "  ⚠️ 应用根应当是 %s\n",
+    "  ⇒ 正确跑法：cd %s && sudo -u shiny -H Rscript --no-environ %s %s"),
+    paste(raw_dr, collapse = ", "), app_dir,
+    Sys.getenv("DSAPP_DATA_ROOT", unset = "(未设)"),
+    APP_ROOT_HINT, APP_ROOT_HINT, "tests/repair_prod.R",
+    paste(want, collapse = " ")), call. = FALSE)
+}
+dr  <- normalizePath(raw_dr, mustWork = TRUE)
 if (startsWith(dr, "/tmp")) stop("拒绝：data_root 落在 /tmp（", dr, "）", call. = FALSE)
 if (!identical(dr, file.path(app_dir, "data"))) {
   stop("拒绝：data_root 不是本应用自己的 data/：", dr, call. = FALSE)

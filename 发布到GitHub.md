@@ -30,7 +30,7 @@ GitHub 单文件限 100 MB，仓库也不该背这个重量 —— 走 Releases�
 # 2) 装凭据（只需一次；token 在**你自己的终端**里粘贴，不回显、不进历史）
 bash desktop/setup_github_cred.sh
 # 3) 推
-python3 desktop/push_via_api.py /home/biomamba/dsapp_build/github_YCFS_APP --force
+python3 desktop/push_via_api.py /home/biomamba/dsapp_build/github_YCFS_APP.new-20261008_1427 --force
 ```
 
 `--force` 在这条路上是**快进**，不是覆盖：脚本建的新提交以远端现有提交为
