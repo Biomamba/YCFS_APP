@@ -72,7 +72,7 @@ chk <- function(name, cond, extra = "") {
          say("  \033[31m✗ %s\033[0m %s", name, extra) }
 }
 
-TO <- if (length(args) >= 2) args[[2]] else "wchcpu2019@163.com"
+TO <- if (length(args) >= 2) args[[2]] else "user1@example.com"
 
 for (f in list.files("R", full.names = TRUE)) {
   if (!grepl("^mod_", basename(f))) source(f, local = globalenv())

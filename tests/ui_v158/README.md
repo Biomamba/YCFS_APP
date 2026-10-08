@@ -279,7 +279,7 @@ JIT 3 下第 2 个会话服务端卡 **7.26 s**，而 `sessioninitialized` **0.1
 
 ## V15.12：那个「页面崩溃」= 每 120 秒一次的整页重载圈（2026-10-03）
 
-用户原话：「Biomamba_ceshi 现在正常了，但是 wchcpu2019@163.com 这个账号的页面
+用户原话：「Biomamba_ceshi 现在正常了，但是 user1@example.com 这个账号的页面
 还是崩溃的，**请保证所有账号都不会崩溃**」。
 
 ### 它到底是什么
@@ -396,12 +396,12 @@ sqlite3 /tmp/dsapp_v1511r/data/dsapp.sqlite3            "select count(*), max(id
 cd /data3/biomamba/analysis/DS_App && Rscript -e '
 for (f in list.files("R", pattern="[.]R$", full.names=TRUE)) source(f, encoding="UTF-8")
 con <- DBI::dbConnect(RSQLite::SQLite(), "/tmp/dsapp_v1511r/data/dsapp.sqlite3")
-salt <- "testv1511probe"; h <- dsapp_pw_hash("dsapp-probe-2019", salt)
+salt <- "testv1511probe"; h <- dsapp_pw_hash("dsapp-probe-REDACTED", salt)
 sql <- sprintf("UPDATE users SET pass_salt=%s, pass_hash=%s, must_change_pw=0 WHERE id=1",
                DBI::dbQuoteString(con, salt), DBI::dbQuoteString(con, h))
 cat("影响行数 =", DBI::dbExecute(con, sql), "\n"); DBI::dbDisconnect(con)'
 
-python3 tests/ui_v158/diag_wchcpu.py     # 登录邮箱 wchcpu2019@163.com / dsapp-probe-2019
+python3 tests/ui_v158/diag_wchcpu.py     # 登录邮箱 user1@example.com / dsapp-probe-REDACTED
 ```
 
 ⚠️ 探针**只读**：不注册、不发消息、不写库。用线上库只是为了"量到他真正撞上的
@@ -452,8 +452,8 @@ FALSE，**第一轮就 break**。那条预算是给"长到要切窗口"的正文
 ### 线上核对（2026-10-03 20:42，`ss -tni`）
 
 ```
-[::ffff:222.190.61.36]:10151  retrans 122609/1025889 = 11.95%  cwnd:4  rtt:78.3ms  Send-Q 34
-[::ffff:222.190.61.36]:11252  retrans 696924/5212260 = 13.37%  cwnd:3  rtt:71.8ms  Send-Q 0
+[::ffff:198.51.100.7]:10151  retrans 122609/1025889 = 11.95%  cwnd:4  rtt:78.3ms  Send-Q 34
+[::ffff:198.51.100.7]:11252  retrans 696924/5212260 = 13.37%  cwnd:3  rtt:71.8ms  Send-Q 0
 ```
 
 **Send-Q 是 0** —— 这是这条修复的靶心：以前它是长期满的（`busy:518536ms`、

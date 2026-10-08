@@ -41,8 +41,8 @@ URL = os.environ["DSAPP_TEST_URL"]
 OUT = os.environ["DSAPP_TEST_OUT"]
 os.makedirs(OUT, exist_ok=True)
 
-EMAIL = os.environ.get("DSAPP_DIAG_EMAIL", "wchcpu2019@163.com")
-PW = os.environ.get("DSAPP_DIAG_PW", "dsapp-probe-2019")
+EMAIL = os.environ.get("DSAPP_DIAG_EMAIL", "user1@example.com")
+PW = os.environ.get("DSAPP_DIAG_PW", "dsapp-probe-REDACTED")
 IDLE_S = float(os.environ.get("DSAPP_IDLE_S", "20"))
 MAX_SESS = int(os.environ.get("DSAPP_MAX_SESS", "8"))
 

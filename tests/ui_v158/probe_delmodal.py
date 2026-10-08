@@ -35,8 +35,8 @@ from playwright.sync_api import sync_playwright         # noqa: E402
 from probe_ctx import ensure_no_modal                   # noqa: E402
 
 URL = os.environ["DSAPP_TEST_URL"]
-EMAIL = os.environ.get("DSAPP_DIAG_EMAIL", "wchcpu2019@163.com")
-PW = os.environ.get("DSAPP_DIAG_PW", "dsapp-probe-2019")
+EMAIL = os.environ.get("DSAPP_DIAG_EMAIL", "user1@example.com")
+PW = os.environ.get("DSAPP_DIAG_PW", "dsapp-probe-REDACTED")
 
 FAIL = []
 OK = []

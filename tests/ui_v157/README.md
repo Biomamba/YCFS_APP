@@ -49,7 +49,7 @@ python3 tests/ui_v157/probe_v157c.py       # 退出码 0 = 全绿
 
 ## item 1：厂商拒了要说出来
 
-用户原话：「**现在 wchcpu2019@163.com 这个账号依然是卡住的，任何操作都会引起
+用户原话：「**现在 user1@example.com 这个账号依然是卡住的，任何操作都会引起
 页面不响应**」。
 
 查下来**不是**页面坏了，也不是这个对话坏了：
@@ -62,7 +62,7 @@ python3 tests/ui_v157/probe_v157c.py       # 退出码 0 = 全绿
    孤零零一条，后面什么都没有，读起来就是「卡住了」。刷新一下连错误都没了
    （错误原来只活在 `rv$error` 这个服务端内存里）。
 
-同一个时段里 `535137280@qq.com`（deepseek）的调用是好的 —— 所以是**账号级**的
+同一个时段里 `user11@example.com`（deepseek）的调用是好的 —— 所以是**账号级**的
 拒绝，不是平台挂了。这也解释了用户看到的「换一个对话、换一个操作，照样没反应」。
 
 ## 改了什么（一处核心 + 一处接线）
@@ -157,13 +157,13 @@ A 节弹的那条 `duration = NULL` 是**不自动消失**的，B 节开始时�
 | `users` | 8 | 8 |
 | `sessions` | 23 | 23 |
 
-多出来的 9 条**全部**是 uid=11（`535137280@qq.com`）在
+多出来的 9 条**全部**是 uid=11（`user11@example.com`）在
 `s-20260930181511-3245` 里的真实使用痕迹（任务 #218/#219/#220），
 **没有一条是探针写的** —— 探针的库在 `/tmp/dsapp_v157/data`。
 
 ## 账号那一侧（不是代码改的，是改库）
 
-`wchcpu2019@163.com`（uid=1）从 `zhipu / glm-5.3` 切到
+`user1@example.com`（uid=1）从 `zhipu / glm-5.3` 切到
 `deepseek / deepseek-flash / https://api.deepseek.com`，用的是这个账号
 9-30 自己存好的那把 deepseek Key。写之前先用 sqlite3 backup API 备了份
 （`/tmp/dsapp_prod_bak_20261001/`），写完核对钥匙串不变式

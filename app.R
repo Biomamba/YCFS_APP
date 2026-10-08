@@ -1706,7 +1706,7 @@ server <- function(input, output, session) {
 
   # ---- 后台管理那一页：**第一次切过去才渲染**（V15.12 item 1）--------------
   #
-  # 2026-10-03 用户报「Biomamba_ceshi 正常了，但 wchcpu2019@163.com 这个账号
+  # 2026-10-03 用户报「Biomamba_ceshi 正常了，但 user1@example.com 这个账号
   #   的页面还是崩溃的，请保证所有账号都不会崩溃」。量下来是这样：
   #
   #   · 那个号（uid=1）是**唯一**一个 platform 管理员，比普通号多看得见

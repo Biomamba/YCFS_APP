@@ -105,6 +105,10 @@ EX=(
   #   这几个，没有别的文件匹配这些模式，所以排掉不会误伤。
   "--exclude=*.bak" "--exclude=*.bak-*" "--exclude=*~"
   "--exclude=*.orig" "--exclude=*.rej" "--exclude=*.swp"
+  # ★ 2026-10-08 加的：敏感字面量清单。它装的就是"不许进树的东西"本身，
+  #   当然不能跟着进树（否则闸门自己把要防的东西发布了 —— 第一版就是这样）。
+  #   照 .example 建一份即可。
+  "--exclude=/desktop/sensitive-patterns"
 )
 
 echo "== 拷贝（白名单式排除，源目录不动）"
@@ -295,6 +299,50 @@ if [ -n "$PW" ] && grep -rqF "$PW" "$OUT" 2>/dev/null; then
   grep -rlF "$PW" "$OUT" 2>/dev/null | head -5
   exit 1
 fi
+
+# ⚠️⚠️ 2026-10-08 加这一段：仓库是 **public** 的，而上面那条口令检查只认
+#    「.Renviron 里那一个口令」。真实用户邮箱、探针账号口令、客户端 IP 都不在
+#    它的覆盖面里 —— 而这三样**确实**已经躺在公开仓库里好几天（靠人肉扫出来
+#    的：24 处 uid=1 的邮箱、2 处 uid=11 的、6 处探针口令、6 处客户端 IP）。
+#    根因不是"忘了排除某个目录"，是**每一处都长得像正常的调试注释**。
+#
+#    ★ 具体值**不写在这个脚本里**。第一版就是写进来的，于是"已经清干净"的树里
+#      仍然躺着一处 —— 闸门的正文本身成了泄漏源。值放 desktop/sensitive-patterns，
+#      那份**排除在推送之外**，这里只读它。
+PAT_FILE="$REPO/desktop/sensitive-patterns"
+if [ ! -f "$PAT_FILE" ]; then
+  echo "!! 找不到 $PAT_FILE —— 没有它这条检查等于没跑，**不要推**"
+  echo "   照 desktop/sensitive-patterns.example 的格式建一份（真值不进仓库）。"
+  exit 1
+fi
+BAD_HIT=""
+while IFS= read -r pat || [ -n "$pat" ]; do
+  case "$pat" in ''|'#'*) continue ;; esac
+  hit="$(grep -rIl -F -- "$pat" "$OUT" 2>/dev/null || true)"
+  if [ -n "$hit" ]; then
+    BAD_HIT="${BAD_HIT}${hit}
+    ↑ 命中清单里的这一条：${pat}
+"
+  fi
+done < "$PAT_FILE"
+# 结构化那一条：**真实服务商域名**的邮箱。钉在域名上而不是钉在那几个人身上 ——
+# 换个人、换个邮箱，这条照样红。树里合法的地址一律是 example.com / .invalid /
+# .local 这类**保留域**（本仓夹具一直这么写），所以这条几乎没有误报。
+BAD_MAIL="$(grep -rIoh -E '[A-Za-z0-9._%+-]+@(163|126|qq|gmail|outlook|hotmail|sina|sohu|foxmail|icloud|139|189)\.(com|cn)' "$OUT" 2>/dev/null | sort -u || true)"
+if [ -n "$BAD_MAIL" ]; then
+  echo "!! 树里有**真实服务商域名**的邮箱（公开仓库，别推）："
+  printf '   %s\n' $BAD_MAIL
+  echo "   改法：换成 userN@example.com 这类保留域（见 tests/ 里既有写法）。"
+  exit 1
+fi
+if [ -n "$BAD_HIT" ]; then
+  echo "!! 树里命中了敏感清单（desktop/sensitive-patterns）："
+  printf '%s' "$BAD_HIT" | head -20
+  exit 1
+fi
+# ⚠️ 字面量这条**故意不写成"任何 IP"**：树里合法的 IP 一大堆（127.0.0.1、
+#    文档用的 1.2.3.4 占位、各版本探针里的本机地址），写成通配就**永远红**，
+#    而一条永远红的检查等于没有检查（下一个人会直接把它删掉）。所以只钉清单里那几个。
 
 echo "== 自检通过：无 data/ 、无 .Renviron 、无口令、无大包"
 echo "== 树大小：$(du -sh "$OUT" | cut -f1)   文件数：$(find "$OUT" -type f | wc -l)"

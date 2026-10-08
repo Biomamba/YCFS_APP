@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""V15.12 诊断：**wchcpu2019@163.com 那个账号的页面为什么崩**。
+"""V15.12 诊断：**user1@example.com 那个账号的页面为什么崩**。
 
 用户原话（2026-10-03，V15.11 上线之后）：
-    「Biomamba_ceshi 现在正常了，但是 wchcpu2019@163.com 这个账号的页面
+    「Biomamba_ceshi 现在正常了，但是 user1@example.com 这个账号的页面
       还是崩溃的，请保证所有账号都不会崩溃」。
 
 ⚠️ 和 `probe_crash.py` 的关系：那一条量的是**渲染层**（喂一条 18 KB 的回复，
@@ -39,8 +39,8 @@ URL = os.environ["DSAPP_TEST_URL"]
 OUT = os.environ["DSAPP_TEST_OUT"]
 os.makedirs(OUT, exist_ok=True)
 
-EMAIL = os.environ.get("DSAPP_DIAG_EMAIL", "wchcpu2019@163.com")
-PW = os.environ.get("DSAPP_DIAG_PW", "dsapp-probe-2019")
+EMAIL = os.environ.get("DSAPP_DIAG_EMAIL", "user1@example.com")
+PW = os.environ.get("DSAPP_DIAG_PW", "dsapp-probe-REDACTED")
 
 # 采集器：装一次，之后随时读。和 probe_crash.py 同一套口径 ——
 # PerformanceObserver 收 longtask、rAF 采帧间隔、performance.memory 看堆。

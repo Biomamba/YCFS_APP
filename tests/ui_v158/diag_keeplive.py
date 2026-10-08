@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """V15.12 诊断：**页面开着不动，它会不会自己重载**（只观察，不断言）。
 
-为什么要有这一条：线上 `data/logs/auth.log` 里，uid=1（wchcpu2019@163.com）
+为什么要有这一条：线上 `data/logs/auth.log` 里，uid=1（user1@example.com）
 从 15:49 到 16:41 **每 ~2 分钟整页加载一次**，一直是同一对
 「页面加载：cookie 非空 / on_login uid=1 reload=否」。人不会那么准点按 F5。
 
@@ -27,8 +27,8 @@ os.environ.setdefault("DSAPP_TEST_APP", "/tmp/dsapp_v1511r/app")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from playwright.sync_api import sync_playwright         # noqa: E402
-EMAIL = os.environ.get("DSAPP_DIAG_EMAIL", "wchcpu2019@163.com")
-PW = os.environ.get("DSAPP_DIAG_PW", "dsapp-probe-2019")
+EMAIL = os.environ.get("DSAPP_DIAG_EMAIL", "user1@example.com")
+PW = os.environ.get("DSAPP_DIAG_PW", "dsapp-probe-REDACTED")
 
 URL = os.environ["DSAPP_TEST_URL"]
 SECS = int(sys.argv[1]) if len(sys.argv) > 1 else 420
