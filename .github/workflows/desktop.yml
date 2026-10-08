@@ -505,16 +505,35 @@ jobs:
           body: |
             桌面版打包产物（由 GitHub Actions 在本仓库源码上构建）。
 
+            ## 一、发给用户：两个安装包
+
+            | 文件 | 给谁 | 用户拿到之后做什么 |
+            |---|---|---|
+            | `ds-app.Setup.*.exe` | Windows | 双击安装。装完开始菜单里多一个 **DS_App**，双击就是独立窗口。**不用装 R，不用解压，不用碰命令行。** |
+            | `ds-app-*-arm64.dmg` | Mac，Apple 芯片（M1/M2/M3/M4） | 双击挂载，把里面的 **DS_App.app** 拖进「应用程序」 |
+            | `ds-app-*.dmg`（无 `arm64` 后缀的那个） | Mac，Intel 芯片 | 同上 |
+
+            不确定 Mac 是哪一种芯片：左上角  →「关于本机」→ 看「芯片」那一行。
+
+            ## 二、备选：三个免安装 zip
+
+            解压后双击 `run_app.bat`（Windows）/ `run_app.command`（macOS），
+            数据落在解压出来的那个文件夹里。给"不能装软件"或者"要放进 U 盘带走"
+            的场景用。
+
             | 文件 | 给谁 |
             |---|---|
-            | `DS_App-Windows-*.zip` | Windows，解压后双击 `run_app.bat` |
-            | `*.exe` | Windows 单文件 |
-            | `DS_App-macOS-arm64-*.zip` | Mac（Apple 芯片 M1/M2/M3/M4） |
+            | `DS_App-Windows-*.zip` | Windows |
+            | `DS_App-macOS-arm64-*.zip` | Mac（Apple 芯片） |
             | `DS_App-macOS-x86_64-*.zip` | Mac（Intel） |
-            | `*.dmg` | Mac 单文件 |
 
-            ⚠️ 没有代码签名证书：Windows 上会弹「未知发布者」，macOS 上首次打开
-            被 Gatekeeper 拦（右键 →「打开」可以绕过）。`SHA256SUMS.txt` 可自行校验。
+            ## 三、两个都会遇到的事
+
+            ⚠️ **没有代码签名证书**（Windows 的一年几百刀、苹果的 99 美元）。
+            所以：Windows 上装的时候会弹「未知发布者」，点「更多信息」→「仍要运行」；
+            macOS 上首次打开被 Gatekeeper 拦，右键点图标 →「打开」→ 再点一次「打开」。
+
+            `SHA256SUMS.txt` 里是全部 6 个文件的 sha256，想核对就自行核对。
           files: |
             flat/*.zip
             flat/*.exe

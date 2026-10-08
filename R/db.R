@@ -1119,7 +1119,24 @@ db_session_delete <- function(id, con = dsapp_db(), cfg = dsapp_config()) {
   try(DBI::dbExecute(con, "DELETE FROM task_files WHERE session_id = ?",
                      params = list(id)), silent = TRUE)
   # 发布记录（V7）同理。
+  #
+  # ⚠️ Test_V17.2 item 1：**盘上那批文件由调用方先清**
+  #    （`dsapp_session_files_purge()`，在 mod_chat.R 的 do_del_chat 里，
+  #    必须赶在这一句**之前**调 —— 行没了就不知道该删哪些落点了）。
+  #    这里只删行，一行磁盘代码都不加：本函数是**唯一**的删会话收口，
+  #    而它的调用方里有自检的临时库、有同步落地、有"删账号"（那边整棵
+  #    `data/files/u<N>/` 由 dsapp_user_purge 端掉）。把 unlink 塞进来，
+  #    每次自检删一个假对话都会去碰盘 —— 而 cfg 传错一次就是删真文件。
   try(DBI::dbExecute(con, "DELETE FROM ws_published WHERE session_id = ?",
+                     params = list(id)), silent = TRUE)
+  # 自动同步的落点（V12 item 3）同理，之前一直漏着。
+  #
+  # 留着不会造成越权（谁也不会拿一行 sync_dirs 去开门），但会**占着那个
+  # 文件夹名字**：`dsapp_sync_free_name()` 是靠 sync_dirs 的行判重名的。
+  # 更麻烦的是 session_id 并非永不复用（见下面 session_skills 那段：
+  # dsapp_id() 是秒级时间戳 + 4 位随机数），一旦撞上，新对话会**直接继承
+  # 上一个已删对话的文件夹名**，产物发进一个标题对不上的目录里去。
+  try(DBI::dbExecute(con, "DELETE FROM sync_dirs WHERE session_id = ?",
                      params = list(id)), silent = TRUE)
   # 技能挂载（V8 item 1）同理：session_skills 也没有外键。
   # 留着的话那些行会永远查不出来（技能页是按 sid 查的），越积越多；而且
@@ -1486,6 +1503,73 @@ db_sync_dir_set <- function(session_id, dir, con = dsapp_db()) {
       params = list(session_id, dir, dsapp_now()))
     invisible(TRUE)
   }, error = function(e) invisible(FALSE))
+}
+
+#' 这个账号名下都对话过什么（★ V17.2 item 3：跨会话）
+#'
+#' 文件区是按**账号**共用的（`data/files/u<N>/`），所以同一个账号下别的对话
+#' 同步出去的产物，在当前对话里也看得见 —— 但看得见的只有**一行路径**。
+#' 模型拿到 `单细胞分析-4279/results/expr.rds` 时，无从判断这是用户上传的
+#' 原始数据、它自己上一轮的中间产物，还是**另一个对话**跑出来的成果。
+#'
+#' 这个函数就是那张对照表：
+#'   · `convs` —— 对话本身（标题 / 最后活动 / 消息数 / 产物文件夹）
+#'   · `pub`   —— `ws_published` 里"哪个对话发布过哪个落点"。
+#'     手动发布到管理区**根**上的文件不在任何文件夹里，认领它们只能靠这张表。
+#'
+#' ⚠️ 只查**同一个账号**的对话。同步文件夹是按账号分的，别人账号的对话名
+#'    出现在这个人的提示词里既是泄露，模型照着去找文件也一定会落空。
+#' ⚠️ 只读。这里**不建** sync_dirs 行 —— 那等于"模型看一眼提示词，平台就替
+#'    别人的对话定了个落点"。落点只由同步那条路（`dsapp_sync_dir`）写。
+#' ⚠️ 出错/取不到账号一律返回**空表**：提示词里少一段，用户看到的是
+#'    "AI 好像不记得我之前那个对话"，而不是整页报错（这条提示词是在每次
+#'    请求里拼的，它抛异常 = 用户发不出消息）。
+#'
+#' @param user_id 账号 id。NA/NULL（比如 _anon）⇒ 空表。
+#' @param sid     当前对话 id，用来标 `is_self`。
+#' @return list(convs = data.frame(session_id,title,updated_at,n_msg,dir,is_self),
+#'              pub   = data.frame(dest,session_id,title,is_self))
+dsapp_conv_index <- function(user_id, sid = NULL, con = dsapp_db()) {
+  blank <- list(
+    convs = data.frame(session_id = character(0), title = character(0),
+                       updated_at = character(0), n_msg = integer(0),
+                       dir = character(0), is_self = logical(0),
+                       stringsAsFactors = FALSE),
+    pub   = data.frame(dest = character(0), session_id = character(0),
+                       title = character(0), is_self = logical(0),
+                       stringsAsFactors = FALSE))
+  uid <- suppressWarnings(as.integer(user_id %||% NA_integer_))
+  if (length(uid) != 1L || is.na(uid)) return(blank)
+  sid <- if (is.null(sid) || !length(sid) || is.na(sid[[1]])) ""
+         else as.character(sid[[1]])
+  tryCatch({
+    convs <- DBI::dbGetQuery(con,
+      "SELECT s.id AS session_id, s.title AS title, s.updated_at AS updated_at,
+              COALESCE(d.dir, '') AS dir,
+              (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) AS n_msg
+         FROM sessions s
+         LEFT JOIN sync_dirs d ON d.session_id = s.id
+        WHERE s.user_id = ?
+        ORDER BY s.updated_at DESC",
+      params = list(uid))
+    convs$n_msg   <- as.integer(convs$n_msg)
+    # NA 安全的相等：session_id 理论上不会是 NA，但标题可能是，别让一行脏
+    # 数据把整个逻辑向量变成 NA（`&` 会把 NA 传下去，下游 if() 就报错了）。
+    convs$is_self <- nzchar(sid) &
+      !is.na(convs$session_id) & as.character(convs$session_id) == sid
+    pub <- DBI::dbGetQuery(con,
+      "SELECT p.dest AS dest, p.session_id AS session_id, s.title AS title
+         FROM ws_published p
+         JOIN sessions s ON s.id = p.session_id
+        WHERE s.user_id = ?",
+      params = list(uid))
+    pub$is_self <- nzchar(sid) &
+      !is.na(pub$session_id) & as.character(pub$session_id) == sid
+    # 同一个落点被两个对话发过时（理论上只有自己跟自己），留最早那条就行 ——
+    # 提示词里只用来标"来自对话「X」"，多标一个不会更有用。
+    if (nrow(pub)) pub <- pub[!duplicated(pub$dest), , drop = FALSE]
+    list(convs = convs, pub = pub)
+  }, error = function(e) blank)
 }
 
 #' 这个对话发布过哪些工作区文件

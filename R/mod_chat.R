@@ -143,7 +143,16 @@ mod_chat_ui <- function(id) {
           #   ⚠️ 它必须是 `.dsapp-chat-scroll` 的**第一个**子元素，而且靠
           #      CSS 的 position: sticky 钉在顶上 —— 跳过去之后用户是滚在
           #      中间的，画在别处（比如窗口下面）等于没画。
-          uiOutput(ns("hist_focus")),
+          #
+          #   ⚠️⚠️ Test_V17.2 item 2：sticky **只能**写在这条 div 自己身上
+          #      （www/app.css 的 .dsapp-hist-focus），**不能**写到上面那个
+          #      uiOutput 的壳上。壳是 `<div class="shiny-html-output">`，而
+          #      shiny 给它设了 `display: contents` —— 不生成盒子的元素上没有
+          #      "粘住"这回事，几何恒为 0×0。实测同一段滚动 300px：
+          #      写在壳上 → 横条跟着滚走 -300px；写在这条 div 上 → 0px。
+          #      （壳是 display:contents 恰恰是能粘住的原因：横条的包含块因此
+          #      是再上一层那个滚动容器。理由和三个数写在 app.css 那一节。）
+          uiOutput(ns("hist_focus"), class = "dsapp-hist-focus-host"),
           # ⚠️ 外层这个 uiOutput 的 id 和里面那个 actionLink 的 id **不能同名**
           #    （两个都叫 hist_more = 页面上两个同 id 的节点，非法 HTML +
           #    按 id 找元素有歧义）。这处是**老代码**，V16.6 加全仓扫描
@@ -193,7 +202,38 @@ mod_chat_ui <- function(id) {
           # 用户的原话是「任务系统定位只是一个记录运行日志的地方，请把执行过程
           # 详细地在言出法随页面展示」：跑一个 RunUMAP 的十几分钟里，用户不该
           # 为了看进度而切到「历史任务」页去。
-          uiOutput(ns("live_run"))
+          uiOutput(ns("live_run")),
+
+          # ★★ Test_V17.2 item 2：用户往上翻着看历史时的「↓ 有新消息 / 回到最新」。
+          #
+          #   用户原话：「跳转到历史消息后，往下拉，没有最新消息的刷新提示」。
+          #
+          #   顶上那条 hist_focus 讲的是"你在**窗口**中间"（服务端把消息窗口
+          #   挪过去了），它管不到另一种更常见的情形：窗口就在最新，用户只是
+          #   **滚上去**读几屏以前的输出 —— 这时新消息（流式增量、任务跑完）
+          #   在他下面长出来，而屏幕上什么提示都没有。
+          #
+          #   ⚠️⚠️ 它是**静态 DOM**，不是 renderUI —— 理由和下面 busy_badge
+          #      那段一模一样：它要在**每一次流式增量**之后跟着变，走服务端就
+          #      得每 200ms 重画一次，那正是本文件里反复踩过的"闪屏"坑。显示、
+          #      隐藏和文案全在 www/app.js 的滚动看护器里（它本来就管着
+          #      "用户是不是贴着底"这件事）。
+          #   ⚠️ 它必须是 `.dsapp-chat-scroll` 的**最后一个**子元素：靠
+          #      `position: sticky; bottom: 0` 钉在滚动容器下沿 —— 这时 sticky
+          #      的包含块才真的是滚动容器（对比上面 hist_focus 那个壳的坑）。
+          #      放错地方（比如塞进 .dsapp-chat-col 里）就得靠绝对定位去猜输入
+          #      框的高度，输入框一换行就对不齐。
+          #   ⚠️ 两句文案是**同时**画进去的，由 CSS 挑一条显示（is-new 那个类）。
+          #      前端**不许**去改这里的文本：看护器的 MutationObserver 正盯着
+          #      childList，写 textContent 就是给自己塞一次变更，会自激
+          #      （见 www/app.js 里 syncPill 那段）。
+          div(class = "dsapp-newmsg", id = ns("newmsg"),
+            tags$button(type = "button", class = "dsapp-newmsg-btn",
+              tags$span(class = "dsapp-newmsg-arrow", HTML("&darr;")),
+              tags$span(class = "dsapp-newmsg-text", "回到最新"),
+              tags$span(class = "dsapp-newmsg-text-new", "有新消息 · 回到最新")
+            )
+          )
         ),
 
         # ★★ V16.1 item 6：「有任务在跑」的常驻浮标。
@@ -7106,10 +7146,31 @@ mod_chat_server <- function(id, state, engine) {
       # 「12 条消息」听起来无关痛痒，「还有 8 个产出文件」才是他真正要掂量的。
       # 弹窗里不报这个数，用户会在删完之后才发现数据没了。
       nf <- length(dsapp_ws_artifacts(sid, cfg())$name)
-      extra <- if (nf > 0) {
-        sprintf("，以及工作区里的 %d 个产出文件和这个对话专属的包目录", nf)
+      # ★ Test_V17.2 item 1：**文件管理区**里那批也要报个数。
+      #
+      #   用户报的是「会话删除后，文件页面的文件还存在」，而这条路以前的
+      #   弹窗只提工作区 —— 用户掂量的就是这句提示，没提的那部分他默认
+      #   不会动。现在盘上那批真的会跟着删（见 dsapp_session_files_purge），
+      #   弹窗就必须说，而且是**同一个函数 dry 出来的数**：弹窗说的和真删的
+      #   一旦是两把尺子，下一次对账又是一笔假账。
+      pf <- tryCatch(dsapp_session_files_purge(sid, cfg(), dry = TRUE),
+                     error = function(e) NULL)
+      npub <- as.integer(pf$n %||% 0L)
+      extra_f <- if (npub > 0) {
+        sprintf("，以及文件管理区里这个对话文件夹中的 %d 个已发布文件", npub)
       } else {
-        "，以及这个对话的工作区和专属包目录"
+        ""
+      }
+      # 用户自己放进那个文件夹的东西**不会**跟着删（它们不是这个对话发布的，
+      # 见 purge 的说明）。留着却不说，用户会以为"说好一起删"没做到。
+      if (npub > 0 && isTRUE((pf$kept %||% 0L) > 0L)) {
+        extra_f <- sprintf("%s（你自己放进那个文件夹的 %d 个会保留）",
+                           extra_f, as.integer(pf$kept))
+      }
+      extra <- if (nf > 0) {
+        sprintf("，以及工作区里的 %d 个产出文件和这个对话专属的包目录%s", nf, extra_f)
+      } else {
+        sprintf("，以及这个对话的工作区和专属包目录%s", extra_f)
       }
       # ★★ V15.14：弹窗必须**点名**它要删的是哪一个对话。
       #
@@ -7180,10 +7241,24 @@ mod_chat_server <- function(id, state, engine) {
           engine$abort(reason = "对话已删除")
         }
       }
+      # ★★ Test_V17.2 item 1：**文件管理区**里那些产物也要一起走。
+      #
+      #   ⚠️ 顺序是这个修复的全部：必须在 `db_session_delete()` **之前**。
+      #      那之后的 `ws_published` 行已经没了（查不到该删哪些落点），
+      #      `sessions` 行也没了（`dsapp_config_sid()` 查不到主人 ⇒ 落到
+      #      `_anon` 空目录 ⇒ 一个文件都不删，而且**不报错**）——
+      #      那正是用户报的那条 bug 的完美复刻。
+      purged <- tryCatch(dsapp_session_files_purge(sid, cfg()),
+                         error = function(e) NULL)
       db_session_delete(sid, con = dsapp_db(cfg()), cfg = cfg())
       # 工作区放在删库**之后**：删库万一失败（外键、SQLite 忙），会话还在，
       # 这时候把用户的文件删了就成了"对话还在、文件没了"。
       # 反过来先删文件再删库失败，症状更糟。
+      #
+      # ⚠️ 上面那批产物**不适用**这条理由：它们是这个对话独有的、库里的
+      #    行也跟着走的东西，删在前在后都不会出现"对话还在、文件没了"的
+      #    错位（行还在时删盘，行随后被删；中间那一瞬没有任何界面读它）。
+      #    而放在后面就查不到主人了 —— 所以它只能在前。
       freed <- dsapp_ws_delete(sid, cfg())
       removeModal()
       # ★ Test_V15.7 item 2：这一行原来只改 rv$session_id，其余是手写的
@@ -7206,11 +7281,21 @@ mod_chat_server <- function(id, state, engine) {
       #   于是又被告知「这是别人共享给你的对话，删不了」。
       #   改 rv$session_id 只让侧栏**重画**，不会让它**重算**，两件事。
       sess_ver(sess_ver() + 1)
-      showNotification(
-        if (is.na(freed)) "已删除（工作区清理未完成，下次启动会再扫一遍）"
+      # ★ Test_V17.2 item 1：顺带报一句文件管理区那边删了几个。只报工作区
+      #   的话，用户去文件页一看那个文件夹没了，也不知道是本该如此还是被
+      #   谁动过；数字对得上，两件事才连得起来。
+      msg_del <- if (is.na(freed)) "已删除（工作区清理未完成，下次启动会再扫一遍）"
         else if (freed > 0) sprintf("已删除，释放 %s", dsapp_fmt_bytes(freed))
-        else "已删除",
-        type = "message")
+        else "已删除"
+      npg <- as.integer((purged %||% list())$n %||% 0L)
+      if (npg > 0) {
+        msg_del <- sprintf("%s；文件管理区里 %d 个文件一并删除", msg_del, npg)
+      }
+      nkp <- as.integer((purged %||% list())$kept %||% 0L)
+      if (npg > 0 && nkp > 0) {
+        msg_del <- sprintf("%s（你自己放进那个文件夹的 %d 个保留了）", msg_del, nkp)
+      }
+      showNotification(msg_del, type = "message")
     })
 
     #' 停止按钮（★ V15.3 item 4：全应用**唯一**一颗停止入口）
@@ -8563,12 +8648,47 @@ mod_chat_server <- function(id, state, engine) {
         invisible(TRUE)
       }
 
+      # ---- 现场快照：采样参数 + 执行目标 --------------------------------
+      #
+      # ★ Test_V17.2 item 4：提到分派**之前**算一次。原来它长在 full 那一支
+      #   里，而 finish 那一支现在也要用（任务万一失败，守护进程会再起一个
+      #   完整循环让 AI 自己修，见 detach.R 的 .dsapp_autofix_takeover）——
+      #   留在里面的话，走 finish 时 `prm` 这个对象**根本不存在**，
+      #   报的是「object 'prm' not found」，而那一下正好在会话收尾的路上。
+      #   两边各算一份也不行：同一份快照写两遍，迟早有一遍改了另一遍没改，
+      #   表现是"挂机修的和盯着修的参数不一样"。
+      #
+      # 采样参数**必须快照**：它们是滑块，库里不存。不传的话后台那条路
+      # 只能用平台默认值，于是"挂机跑出来的"和"盯着跑出来的"是两次
+      # 参数不同的请求 —— 而用户完全无从察觉。
+      # ★ V15.5 item 6：快照里带的是**用户填的单次使用上限**，不是推导
+      #   出来的 max_tokens。后台那条路会拿它重新拼一次上下文、重新推一次
+      #   （见 detach.R 里 dsapp_ctx_plan 那一段）——快照推导值的话，两边
+      #   的历史预算会不一样，"盯着跑"和"挂机跑"又成了两次不同的请求。
+      #
+      # ⚠️ 整段包 tryCatch，和它下面那段同一个理由：这里的每一个读
+      #    （state$*、dsapp_current_target()）都发生在会话正在被拆掉的当口，
+      #    任何一个抛出来都会**跳过下面那段兜底**，于是任务既没交接出去、
+      #    也没被停掉 —— 那正是这个功能最坏的失败方式（用户以为在挂机，
+      #    其实什么都没跑）。算不出来就两个都当 NULL 传下去：后台那条路
+      #    会退回平台默认值，并如实记一笔。
+      snap <- tryCatch(list(
+        target = dsapp_current_target(),
+        params = list(temperature      = isolate(state$temperature),
+                      ctx_limit        = isolate(state$ctx_limit),
+                      thinking         = isolate(state$thinking),
+                      reasoning_effort = isolate(state$reasoning_effort),
+                      vendor           = isolate(state$vendor),
+                      model            = isolate(state$model),
+                      base_url         = isolate(state$base_url))),
+        error = function(e) list(target = NULL, params = NULL))
+
       # ---- full：整个循环交给后台 ----------------------------------------
       #
-      # ⚠️ 整段包 tryCatch。这里面的每一个读（state$*、dsapp_current_target()）
-      #    都在会话正在被拆掉的当口跑，任何一个抛出来都会**跳过下面那段兜底**，
-      #    于是任务既没交接出去、也没被停掉 —— 那正是这个功能最坏的失败方式
-      #    （用户以为在挂机，其实什么都没跑）。出错就当没交接成功，往下走。
+      # ⚠️ 整段包 tryCatch。这里的读（state$*）都在会话正在被拆掉的当口跑，
+      #    任何一个抛出来都会**跳过下面那段兜底**，于是任务既没交接出去、
+      #    也没被停掉 —— 那正是这个功能最坏的失败方式（用户以为在挂机，
+      #    其实什么都没跑）。出错就当没交接成功，往下走。
       started <- if (identical(det, "full") && loop_alive && !is.null(sid_now))
         tryCatch({
           # 先把流式生成掐掉。它累加的文本只活在**本会话**的 st$acc 里，
@@ -8581,21 +8701,8 @@ mod_chat_server <- function(id, state, engine) {
           #    下面兜底那一支，那里才是必须存的地方。
           if (!is.null(st$llm)) try(dsapp_llm_abort(st$llm), silent = TRUE)
 
-          # 采样参数**必须快照**：它们是滑块，库里不存。不传的话后台那条路
-          # 只能用平台默认值，于是"挂机跑出来的"和"盯着跑出来的"是两次
-          # 参数不同的请求 —— 而用户完全无从察觉。
-          # ★ V15.5 item 6：快照里带的是**用户填的单次使用上限**，不是推导
-          #   出来的 max_tokens。后台那条路会拿它重新拼一次上下文、重新推一次
-          #   （见 detach.R 里 dsapp_ctx_plan 那一段）——快照推导值的话，两边
-          #   的历史预算会不一样，"盯着跑"和"挂机跑"又成了两次不同的请求。
-          prm <- list(temperature      = isolate(state$temperature),
-                      ctx_limit        = isolate(state$ctx_limit),
-                      thinking         = isolate(state$thinking),
-                      reasoning_effort = isolate(state$reasoning_effort),
-                      vendor           = isolate(state$vendor),
-                      model            = isolate(state$model),
-                      base_url         = isolate(state$base_url))
-          tgt <- tryCatch(dsapp_current_target(), error = function(e) NULL)
+          prm <- snap$params
+          tgt <- snap$target
           isTRUE(dsapp_detach_start(
             sid_now, user_id = isolate(state$user_id), target = tgt,
             max_iter = st$agent$max_iter %||% DSAPP_AGENT_MAX_ITER,
@@ -8624,9 +8731,22 @@ mod_chat_server <- function(id, state, engine) {
 
       # ---- finish：守着当前这个任务跑完 -----------------------------------
       if (identical(det, "finish") && !is.null(tid_now)) {
-        sitted <- tryCatch(dsapp_detach_sit(tid_now, sid_now,
-                                            user_id = isolate(state$user_id),
-                                            cfg = cfg_end),
+        # ★ Test_V17.2 item 4：这一档现在也要带上**现场快照**。
+        #
+        #   以前它用不着（守护进程只守着任务、不叫模型），现在用得着了 ——
+        #   任务万一失败，那个进程会再起一个完整循环让 AI 自己修
+        #   （见 detach.R 的 .dsapp_autofix_takeover，用户报的就是这件事）。
+        #   不传的话，"挂机时 AI 自己修的那一次"会拿平台默认的温度、上限、
+        #   轮数和墙钟去跑，和用户盯着它修的那一次**不是同一个请求** ——
+        #   而他完全无从察觉。快照是上面**算好一次**的 snap，这里直接取，
+        #   不再算第二遍（算两遍就是两份口径）。
+        sitted <- tryCatch(dsapp_detach_sit(
+                             tid_now, sid_now,
+                             user_id = isolate(state$user_id),
+                             target = snap$target, params = snap$params,
+                             max_iter = st$agent$max_iter %||% DSAPP_AGENT_MAX_ITER,
+                             wall_limit = st$agent$wall_limit %||% DSAPP_AGENT_WALL_DEF,
+                             cfg = cfg_end),
                            error = function(e) FALSE)
         if (isTRUE(sitted)) {
           if (!is.null(st$llm)) try(dsapp_llm_abort(st$llm), silent = TRUE)

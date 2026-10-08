@@ -2010,9 +2010,10 @@ observe_blocks <- function(lines) {
     m <- regexpr("observe\\(\\{", substr(txt, pos, nchar(txt)), perl = TRUE)
     if (is.na(m) || m < 0) break
     st <- pos + m - 1L + attr(m, "match.length") - 1L   # 指向 "{"
-    depth <- 0L; i <- st; n <- nchar(txt)
+    CH <- dsapp_chars(txt)                      # 同上：循环里不许 substr
+    depth <- 0L; i <- st; n <- length(CH)
     while (i <= n) {
-      ch <- substr(txt, i, i)
+      ch <- CH[i]
       if (ch == "{") depth <- depth + 1L
       else if (ch == "}") { depth <- depth - 1L; if (depth == 0L) break }
       i <- i + 1L
@@ -2037,9 +2038,10 @@ observe_blocks <- function(lines) {
 dsapp_block_at <- function(txt, m) {
   if (length(m) != 1L || is.na(m) || m < 0) return("")
   st <- m + attr(m, "match.length") - 1L        # 指向 "{"
-  depth <- 0L; i <- st; n <- nchar(txt)
+  CH <- dsapp_chars(txt)                        # 一次切开，别在循环里 substr（O(n²)）
+  depth <- 0L; i <- st; n <- length(CH)
   while (i <= n) {
-    ch <- substr(txt, i, i)
+    ch <- CH[i]
     if (ch == "{") depth <- depth + 1L
     else if (ch == "}") { depth <- depth - 1L; if (depth == 0L) break }
     i <- i + 1L
@@ -2082,6 +2084,33 @@ strip_comments <- function(txt) {
     i <- i + 1L
   }
   paste(out[seq_len(m)], collapse = "")
+}
+
+#' 把字符串切成**字符向量**，供逐字符扫描用
+#'
+#' ⚠️ 别写 `substr(txt, i, i)`。那个在**大字符串**上是 O(i) —— R 得从头数到
+#'    第 i 个字符才能切出那一个。于是"逐字符走一遍"整体是 O(n²)：
+#'    2026-10-08 实测，35 万字符的 mod_chat.R 从第 28.8 万字符处走 6.6 万步
+#'    要 **23.9 秒**；把全仓 R 源码拼起来再走一遍是**分钟级**的。症状是
+#'    自检看起来"卡死了"，而它其实在算 —— 我为此查了一轮死循环。
+#'    切成向量之后每步 O(1)，整趟 O(n)。
+#'
+#' ⚠️ 切的是**字符**不是字节，和 `nchar()` / `substr()` 同一个坐标系；
+#'    返回值长度就是 `nchar(txt)`，所以 `CH[i]`（i <= nchar(txt)）不会越界。
+#'
+#' ⚠️ 但那个"同一个坐标系"**依赖 locale**：`en_US.UTF-8` 下 `strsplit(s,"")`
+#'    按字符切（实测 `nchar` 和 `length()` 相等，拿 354465 字符的
+#'    `R/mod_chat.R` 对过 `regexpr` 的下标）；而 `LC_ALL=C` 下同一句按**字节**
+#'    切，下标就和 `substr()` 错位 —— 块会抠歪，而块抠歪之后 `chk()` 只看到
+#'    空串，报的却是"源码里没写这句话"。所以下面自己量一次、对不上就走
+#'    `substring` 兜底（同样按字符、一次向量化调用，仍然是 O(n)）。
+dsapp_chars <- function(txt) {
+  CH <- strsplit(txt, "", fixed = TRUE)[[1]]
+  if (length(CH) != nchar(txt)) {
+    ii <- seq_len(nchar(txt))
+    CH <- substring(txt, ii, ii)
+  }
+  CH
 }
 
 #' 取出一个 observe 块里**顶层**的语句（跳过嵌套的 {} 块）
@@ -4382,14 +4411,22 @@ chk("★ 快照不列软链（镜像进来的只读输入不是产物）",
 chk("快照递归", any(grepl("/", dsapp_ws_snapshot(mws))))
 
 # ---- 内部目录不算产物 ----
-chk("★ .Rlib / .venv / .pylib / .dsapp_* 都不算产物",
+chk("★ .Rlib / .venv / .pylib / .skills / .dsapp_* 都不算产物",
     all(dsapp_ws_is_internal(c(".Rlib/x/DESC", ".venv/bin/python",
-                               ".pylib/foo.py", ".dsapp_main.R",
-                               ".dsapp_extract_1/a.csv"))))
+                               ".pylib/foo.py",
+                               ".skills/academic-search/SKILL.md",
+                               ".dsapp_main.R", ".dsapp_extract_1/a.csv"))))
 chk("正常产物不算内部文件",
     !any(dsapp_ws_is_internal(c("result.csv", "results/plot.png", "a/b/c.tsv"))))
 chk("★ 只有**整段**命中才算内部（my.Rlibx 不是内部目录）",
     !isTRUE(dsapp_ws_is_internal("my.Rlibx/a.txt")))
+# `.skills` 没有 `_` 后缀（`.dsapp_` 有），所以它**只能**用 `%in%` 整段配，
+# 一旦有人为了"顺手"把它并进 `startsWith(seg, ".dsapp_")` 那个分支里，
+# 这条会红。顺带钉住"任何一段都算"（子层同样命中）。
+chk("★ `.skills` 是整段判、且子层同样命中（写成 startsWith 会误伤 my.skills）",
+    !isTRUE(dsapp_ws_is_internal("my.skills/x.txt")) &&
+      !isTRUE(dsapp_ws_is_internal("notes/.skillsx/a.txt")) &&
+      isTRUE(dsapp_ws_is_internal("out/.skills/x.md")))
 
 # ---- 产物清单要看得到子目录里的东西 ----
 # ⚠️ 这个对话 id 必须是**库里真有的**一条会话，不能像原来那样编一个字符串。
@@ -4413,6 +4450,61 @@ arts <- dsapp_ws_artifacts(mwsid, cfg)
 chk("★ 产物清单能看见子目录里的文件（只看顶层会漏掉 results/plot.png）",
     "results/plot.png" %in% arts$name)
 chk("顶层产物也在", "top.csv" %in% arts$name)
+
+# ---- `.skills/` 一个都不许进产物清单（2026-10-08 补）-----------------------
+#
+# ⚠️ 上面「内部目录不算产物」那几条证的是**谓词**
+#    （`dsapp_ws_is_internal()` 返回得对不对）。这一节证的是**端到端**：
+#    `dsapp_ws_artifacts()` / `build_file_section()` 有没有真的去调它。
+#    两件事必须分开断 —— 谓词全绿、而某个调用点漏了，屏幕上和"修好了"
+#    长得一模一样。本仓在这上面栽过不止一次。
+#
+# 为什么非要有它：`.skills/` 原来不在内部目录表里，而 skills.R 的注释以为
+# 「点目录不会被列出来」就挡住了 —— 偏偏 `dsapp_ws_snapshot()` 用的是
+# `find`（为的是不跟软链钻出去），find 是**列点文件**的。平时不发作
+# （自动同步传的是**本次任务的产物**，不含技能文件），一发作就是**全量**：
+# 2026-10-08 一次 `dsapp_sync_repair()` 把 174 份技能文档发进了 u1 的
+# 文件管理区，`file_owner` 里躺了 174 行点路径。
+#
+# 判据用"和加之前**逐字相同**"，而不是 `!grepl(".skills", ...)`：
+# 后者会被任何名字里带 `.skills` 的正常产物（`my.skills.csv`）弄成假红，
+# 而且它数不出"多了一个目录行"这种。identical 两个方向都管。
+dir.create(file.path(mwd, ".skills", "academic-search"),
+           recursive = TRUE, showWarnings = FALSE)
+writeLines("s", file.path(mwd, ".skills", "academic-search", "SKILL.md"))
+arts_sk <- dsapp_ws_artifacts(mwsid, cfg)
+chk("★★ 建出 `.skills/` 之后产物清单**一个都没多**（多了就会被补齐发进文件管理区）",
+    identical(sort(arts_sk$name), sort(arts$name)))
+chk("★★ 模型看到的「本对话已有文件」同样不列 `.skills/`",
+    !grepl(".skills", build_file_section(mwsid, cfg), fixed = TRUE))
+unlink(file.path(mwd, ".skills"), recursive = TRUE)
+
+# ---- 四个内部点目录**一起**再验一遍，名字问 getter 要（2026-10-08 补）------
+#
+# 上面那条只建了 `.skills`。这一条把四个都建出来，而且 `.Rlib` / `.venv`
+# 的名字是**现问 getter** 的：
+#
+#   ⚠️ 内部目录表是**手写的黑名单**（`dsapp_ws_is_internal()`，R/executor.R）。
+#      `.skills` 那次漏掉，就是因为"加了目录、没加表"。有人把 `.Rlib` 改名成
+#      `.renv`（或在 getter 里换实现）时，**谓词不会跟着变** —— 于是这里的
+#      getter 会拿到 `.renv`、而谓词说它不是内部 ⇒ 这条立刻红。
+#      `.pylib` / `.skills` 没有 getter，只能写字面量，产地分别是
+#      `R/envs.R:1403` 和 `R/skills.R` 的 `dsapp_skill_files_materialize()`。
+#
+# 判据沿用上面那条的 `identical()`：`dsapp_ws_artifacts()` 是 `dirs = TRUE`
+# 的，**目录项自己也在清单里** ⇒ 谁漏了，目录行 + 它底下的文件行会一起冒出来。
+internal_dirs <- c(basename(dsapp_ws_rlib(mwsid, cfg)),
+                   basename(dsapp_ws_venv(mwsid, cfg)), ".pylib", ".skills")
+internal_dirs <- internal_dirs[!is.na(internal_dirs) & nzchar(internal_dirs)]
+for (nm in internal_dirs) {
+  dir.create(file.path(mwd, nm), recursive = TRUE, showWarnings = FALSE)
+  writeLines("x", file.path(mwd, nm, "probe.txt"))
+}
+arts_all <- dsapp_ws_artifacts(mwsid, cfg)
+chk("★★ 四个内部点目录全建出来（两个名字是问 getter 要的），产物清单仍然一个都没多",
+    length(internal_dirs) == 4L &&
+      identical(sort(arts_all$name), sort(arts$name)))
+unlink(file.path(mwd, internal_dirs), recursive = TRUE)
 
 # ---- 目录（V8 item 7）------------------------------------------------------
 #
@@ -4713,6 +4805,581 @@ chk("★ 删对话只带走自己那一摊：同账号另一个对话的任务�
 chk("★ 删不存在的对话不报错（界面上连点两下删除）",
     !inherits(tryCatch(db_session_delete("s-19700101000000-1", con = tcon),
                        error = function(e) e), "error"))
+
+# ---------------------------------------------------------------------------
+# ★★ Test_V17.2 item 1：删对话要把**文件管理区**里那批产物一起带走
+# ---------------------------------------------------------------------------
+# 用户原话：「Biomamba_ceshi账号下，会话删除后，文件页面的文件还存在」。
+#
+# 成因：`db_session_delete()` 会删掉 `ws_published` 的行，但盘上一个字节都
+# 不动 —— 删对话那条路只调了 `dsapp_ws_delete()`，而它删的是**工作区**
+# （`data/workspaces/chat-<sid>/`）。产物同步出去的那份在
+# `data/files/u<N>/<对话文件夹>/` 里，两者是不同的目录。库里的行没了、
+# 盘上的文件还在，那个文件夹就永远挂在文件页里。
+#
+# ⚠️ 这一节用**自己的库和目录**（v172_tcfg）。它要真删文件，共用主 cfg 的话
+#    一次判断失误就会去动别人夹具里的东西 —— 而这一节的失败方式恰好是
+#    "删错东西"，那是最不该外溢的一类。
+#
+# ⚠️⚠️ 判据一律落到**盘**（file.exists / dir.exists）上，不是返回值。
+#    只断言"函数说它删了 2 个"是本仓栽过好几次的弱判据：计数对而文件还在，
+#    屏幕上和"修好了"一模一样。而且**阴性对照必须在**：用户自己传进那个
+#    文件夹的东西要原封不动 —— 少了它，"删干净了"和"顺手把用户的文件端了"
+#    在屏幕上没有区别。
+v172_tcfg <- cfg
+v172_tcfg$db_path   <- file.path(tmp, "v172_item1.sqlite3")
+v172_tcfg$data_root <- file.path(tmp, "v172_item1_root")
+invisible(dsapp_init_dirs(v172_tcfg))
+v172_con <- dsapp_db(v172_tcfg)
+v172_u   <- mkuser("V172甲", "v172a@selftest.local", "13800000701", "RNA",
+                   v172_con)
+v172_uid <- as.integer(v172_u$user$id)
+v172_cfg <- dsapp_config_user(v172_uid, v172_tcfg)
+v172_fdir <- v172_cfg$files_dir
+
+chk("★ 抠到了 dsapp_session_files_purge（抠不到下面全是假过）",
+    is.function(dsapp_session_files_purge))
+
+v172_pub <- function(sid, dest, content) {
+  p <- file.path(v172_fdir, dest)
+  dir.create(dirname(p), recursive = TRUE, showWarnings = FALSE)
+  writeLines(content, p)
+  dsapp_file_owner_set(dest, v172_uid, con = v172_con)
+  db_ws_pub_set(sid, dest, dest, con = v172_con)
+  p
+}
+v172_owner <- function(dest) nrow(DBI::dbGetQuery(v172_con,
+  "SELECT 1 FROM file_owner WHERE name = ?",
+  params = list(dsapp_owner_key(dest, v172_uid)))) == 1L
+
+# ---- ① 正常路径：两份发布 + 一份用户自己传的 ----
+v172_sid <- db_session_create("V172 要删的对话", user_id = v172_uid,
+                              con = v172_con)
+v172_rel <- dsapp_sync_dir(v172_sid, v172_cfg)      # 写 sync_dirs 行
+v172_a <- v172_pub(v172_sid, file.path(v172_rel, "results", "a.csv"), "a")
+v172_b <- v172_pub(v172_sid, "根上的手动发布.csv", "b")
+v172_mine <- file.path(v172_fdir, v172_rel, "用户自己传的.csv")
+writeLines("mine", v172_mine)
+dsapp_file_owner_set(file.path(v172_rel, "用户自己传的.csv"), v172_uid,
+                     con = v172_con)
+chk("★ 夹具齐了（两份发布在盘上、ws_published 两行、用户自己那份也在）",
+    file.exists(v172_a) && file.exists(v172_b) && file.exists(v172_mine) &&
+      nrow(db_ws_pub_map(v172_sid, con = v172_con)) == 2L)
+
+v172_dry <- dsapp_session_files_purge(v172_sid, v172_cfg, dry = TRUE)
+chk("★★ dry 只算不删，而且算得对（弹窗里那个数就是它给的 —— 一把尺子）",
+    identical(as.integer(v172_dry$n), 2L) &&
+      file.exists(v172_a) && file.exists(v172_b))
+chk("★★ dry 分得出文件夹里还剩几个是用户自己的（阴性对照的前提）",
+    identical(as.integer(v172_dry$kept), 1L),
+    sprintf("kept=%s", v172_dry$kept))
+
+v172_r <- dsapp_session_files_purge(v172_sid, v172_cfg)
+chk("★★★ 盘上：两份发布出去的都没了，用户自己那份原封不动",
+    !file.exists(v172_a) && !file.exists(v172_b) && file.exists(v172_mine),
+    sprintf("a=%s b=%s mine=%s", file.exists(v172_a), file.exists(v172_b),
+            file.exists(v172_mine)))
+chk("★★ 删完空掉的子目录被剪掉了（产物多在 results/ 这类子目录里）",
+    !dir.exists(file.path(v172_fdir, v172_rel, "results")))
+chk("★★ 归属行跟着走（file_owner 不留指向空气的行）",
+    !v172_owner(file.path(v172_rel, "results", "a.csv")) &&
+      !v172_owner("根上的手动发布.csv") &&
+      v172_owner(file.path(v172_rel, "用户自己传的.csv")))
+chk("★ 文件夹留着（里面还有用户的东西，不能整个端掉）",
+    dir.exists(file.path(v172_fdir, v172_rel)) && !isTRUE(v172_r$removed_dir))
+
+# ---- ② 文件夹里没有用户的东西 ⇒ 整个文件夹消失 ----
+chk("★★ 那种情况整个对话文件夹要消失（不然界面上还挂着一个空壳）", {
+  s <- db_session_create("V172 空文件夹的对话", user_id = v172_uid,
+                         con = v172_con)
+  rel <- dsapp_sync_dir(s, v172_cfg)
+  f <- v172_pub(s, file.path(rel, "x", "c.csv"), "c")
+  r <- dsapp_session_files_purge(s, v172_cfg)
+  !file.exists(f) && !dir.exists(file.path(v172_fdir, rel)) &&
+    isTRUE(r$removed_dir) && identical(as.integer(r$kept), 0L)
+})
+
+# ---- ③ 别的对话也发布过同一个落点 ⇒ 宁可少删，不许误删 ----
+chk("★★ 有别的对话引用着的落点不许动（保守的一侧）", {
+  s1 <- db_session_create("V172 甲", user_id = v172_uid, con = v172_con)
+  s2 <- db_session_create("V172 乙", user_id = v172_uid, con = v172_con)
+  rel <- dsapp_sync_dir(s1, v172_cfg)
+  f <- v172_pub(s1, file.path(rel, "shared.csv"), "s")
+  db_ws_pub_set(s2, file.path(rel, "shared.csv"), file.path(rel, "shared.csv"),
+                con = v172_con)
+  r <- dsapp_session_files_purge(s1, v172_cfg)
+  file.exists(f) && v172_owner(file.path(rel, "shared.csv")) &&
+    identical(as.integer(r$n), 0L)
+})
+
+# ---- ④ 顺序：清盘必须排在删库**之前** ----
+#
+# 放在后面就查不到主人了 —— `dsapp_config_sid()` 落到 `_anon`（一个**永远
+# 空的**目录，R/config.R:1232 故意的），表现为"一个文件都没删"，**不报错**。
+# 这一条把它从注释里的话变成会红的判据：哪天有人图省事把它挪到后面，这里响。
+chk("★★★ 清盘排在 db_session_delete 之前（顺序反了就是静默不删）", {
+  # ⚠️⚠️ **先剥注释**。那一段的正上方写着「必须在 `db_session_delete()`
+  #    **之前**」这句解释 —— 不剥的话，扫描器找到的是**注释里那一处**
+  #    （偏移 1363），而真正的调用在后面（1707），于是 p < d 判反，
+  #    报出来的是"顺序错了"，其实顺序是对的。本仓栽过三次的那个坑。
+  src <- strip_comments(paste(readLines("R/mod_chat.R", warn = FALSE),
+                              collapse = "\n"))
+  i <- regexpr("observeEvent(input$do_del_chat", src, fixed = TRUE)
+  # ⚠️ 结束边界要取**下一个** observeEvent，不能写死 "input$new_chat" ——
+  #    那个 observer 在文件里排在 do_del_chat **前面**（新建对话那段在
+  #    6950 行一带），拿它当结尾会得到一个空串，于是这条断言在空串上
+  #    白送绿/白送红（第一版就是这么红的，报的还像"顺序真的错了"）。
+  all_obs <- gregexpr("observeEvent(", src, fixed = TRUE)[[1]]
+  nxt <- all_obs[all_obs > as.integer(i)]
+  body <- if (as.integer(i) > 0 && length(nxt)) substr(src, i, nxt[[1]]) else ""
+  p <- regexpr("dsapp_session_files_purge(", body, fixed = TRUE)
+  d <- regexpr("db_session_delete(", body, fixed = TRUE)
+  # 先证明这一刀切出了东西 —— 切空的时候上面两个都是 -1，p > 0 不成立，
+  # 结果是"红"，看起来和"顺序错了"一模一样。所以这一条要单独判得出来。
+  length(nxt) > 0 && nchar(body) > 200 && p > 0 && d > 0 && p < d
+})
+chk("★★ 而且它排在**前面**不是白排：删库之后就真的一个都删不掉了", {
+  s <- db_session_create("V172 顺序反证", user_id = v172_uid, con = v172_con)
+  rel <- dsapp_sync_dir(s, v172_cfg)
+  f <- v172_pub(s, file.path(rel, "late.csv"), "late")
+  invisible(db_session_delete(s, con = v172_con, cfg = v172_cfg))
+  r <- dsapp_session_files_purge(s, v172_cfg)     # 已经晚了
+  file.exists(f) && identical(as.integer(r$n), 0L)
+})
+
+# ---- ⑤ 删库要连 sync_dirs 的行一起删 ----
+#
+# 那行留着不会越权，但会**占着文件夹名字**（`dsapp_sync_free_name()` 就是
+# 靠它判重名的），而 session_id 并非永不复用 —— 撞上之后新对话会直接继承
+# 上一个已删对话的文件夹名。
+chk("★★ 删对话会连 sync_dirs 的行一起删", {
+  s <- db_session_create("V172 同步落点", user_id = v172_uid, con = v172_con)
+  invisible(dsapp_sync_dir(s, v172_cfg))
+  n1 <- nrow(DBI::dbGetQuery(v172_con,
+    "SELECT 1 FROM sync_dirs WHERE session_id = ?", params = list(s)))
+  invisible(db_session_delete(s, con = v172_con, cfg = v172_cfg))
+  n2 <- nrow(DBI::dbGetQuery(v172_con,
+    "SELECT 1 FROM sync_dirs WHERE session_id = ?", params = list(s)))
+  n1 == 1L && n2 == 0L
+})
+chk("★ 会话都没了之后再清一次是空转（不报错、不误删）", {
+  r <- dsapp_session_files_purge(v172_sid, v172_cfg)
+  identical(as.integer(r$n), 0L) && file.exists(v172_mine)
+})
+
+# ---------------------------------------------------------------------------
+# ★★ Test_V17.2 item 2：往上翻着看的时候，下面长出东西要**说一声**
+# ---------------------------------------------------------------------------
+# 用户原话：「跳转到历史消息后，往下拉，没有最新消息的刷新提示」。
+#
+# 真行为在 tests/ui_v172/probe_newmsg.py 里量（38 条，含阴性对照）。这一节
+# 钉的是三件"源码里看着对、真跑起来不对"的事：
+#
+#   ① 那一格是**静态 DOM**（不是 renderUI）：两句文案同时画进去、由 CSS 挑
+#      一条显示。前端**不许**改文本 —— 看护器的 MutationObserver 正盯着
+#      childList，写一次 textContent 就是给自己塞一次变更，下一拍再进来、
+#      再写一次（浏览器不报错，只是 CPU 一直转、每一拍都在重排）。
+#   ② sticky 只能写在横条**自己**身上，**不能**写在它的壳上：壳是
+#      `<div class="shiny-html-output">`，shiny 给它设了 display: contents，
+#      不生成盒子的元素上没有"粘住"这回事。
+#      ★ V17.2 的初版就是写在壳上的 —— 源码里 "position: sticky; top: 0"
+#        白纸黑字，实测横条跟着内容滚走了整整 300px（探针 G 节量到 -300.0）。
+#   ③ 点它的时候**先**贴底、**再**点「回到最新」：反过来的话服务端换完 DOM，
+#      看护器按"用户还在中间"把位置又还原回去 —— 点了没反应。
+#
+# ⚠️⚠️ 扫 CSS/JS 源码**一律先剥注释**：这三条的正上方就是解释它们的注释，
+#    里面白纸黑字写着 "position: sticky"、"textContent" 这些词。不剥的话
+#    把代码删光、断言照样全绿（本仓连踩三次的那条）。
+v172_decomment <- function(txt) {
+  ch <- strsplit(txt, "")[[1]]
+  n <- length(ch); out <- character(n); m <- 0L; i <- 1L; q <- FALSE
+  while (i <= n) {
+    c <- ch[i]
+    if (q) {
+      m <- m + 1L; out[m] <- c
+      if (c == "\\") { if (i < n) { i <- i + 1L; m <- m + 1L; out[m] <- ch[i] } }
+      else if (c == '"') q <- FALSE
+    } else if (c == '"') {
+      q <- TRUE; m <- m + 1L; out[m] <- c
+    } else if (c == "/" && i < n && ch[i + 1L] == "/") {
+      while (i <= n && ch[i] != "\n") i <- i + 1L
+      next
+    } else if (c == "/" && i < n && ch[i + 1L] == "*") {
+      i <- i + 2L
+      while (i < n && !(ch[i] == "*" && ch[i + 1L] == "/")) i <- i + 1L
+      i <- i + 2L
+      next
+    } else { m <- m + 1L; out[m] <- c }
+    i <- i + 1L
+  }
+  paste(out[seq_len(m)], collapse = "")
+}
+#' 抠出从某个匹配开始的整块（R 的 `{...}`，或 JS 的 `(...)`）
+#'
+#' ⚠️⚠️ **不能**把 regexpr 的匹配对象直接丢给 dsapp_block_at：那个函数假定
+#'    "匹配的最后一个字符就是 `{`"（它自己的注释里写着）。而
+#'    `xxx <- function(...)` 这种跨行签名匹配到的是函数名或 `)` —— 从那儿
+#'    按花括号配对会一路吃到**文件末尾**，抠出来的根本不是这个函数，而断言
+#'    照样"通过"。本仓栽过的那条（定长窗口读到下一个函数 → 假红）是同一个病。
+#' ⚠️ 这里**不再有**"往后 N 个字符以内找 `{`"那种写法：第一版写的是 600，
+#'    而 `dsapp_detach_start` 的签名里插着一段 11 行的说明注释，那个 `{` 恰好
+#'    在第 **601** 个字符上（只差一格）。按**括号深度**扫没有这个数。
+v172_blk <- function(txt, pat, open = "{") {
+  m <- regexpr(pat, txt, fixed = TRUE)
+  if (length(m) != 1L || is.na(m) || as.integer(m) < 0L) return("")
+  CH <- dsapp_chars(txt)          # 一次切开：循环里 substr(txt,i,i) 是 O(n²)
+  n <- length(CH); st <- as.integer(m); i <- st
+  if (open == "(") {
+    # 调用式的块（`div(...)`、`pill.addEventListener(...)`）：模式里带着被调用
+    # 的那个名字，所以**第一个** `(` 就是它自己的。
+    while (i <= n && CH[i] != "(") i <- i + 1L
+    if (i > n) return("")
+    depth <- 0L; q <- FALSE
+    while (i <= n) {
+      c <- CH[i]
+      if (q) { if (c == "\\") i <- i + 1L else if (c == '"') q <- FALSE }
+      else if (c == '"') q <- TRUE
+      else if (c == "(") depth <- depth + 1L
+      else if (c == ")") { depth <- depth - 1L; if (depth == 0L) break }
+      i <- i + 1L
+    }
+    if (i > n) return("")
+    return(substr(txt, st, i))
+  }
+  # 花括号的块（函数体、if 体、observeEvent 体……）：从匹配处往后，找**第一处
+  # 括号深度回到 0 的 `{`** —— 那就是这个函数体的开括号。
+  #
+  # ⚠️⚠️ 这里**不能**写成"往后 N 个字符以内找 `{`"。第一版写的是 600，而
+  #    `dsapp_detach_start` 的签名里插着一段 11 行的说明注释，那个 `{` 恰好
+  #    在第 **601** 个字符上（只差一格）。回到空串的下场是：基于它的断言
+  #    要么变红、要么**假绿**（`grepl(pat, "")` 恒为 FALSE，而 `!grepl(...)`
+  #    恒为 TRUE —— 后者一声不响地"通过"），屏幕上看起来还和"这个函数被
+  #    改名了"一模一样。按括号深度扫没有这个数：签名里插多少注释都不影响。
+  depth <- 0L; q <- FALSE
+  while (i <= n) {
+    c <- CH[i]
+    if (q) { if (c == "\\") i <- i + 1L else if (c == '"') q <- FALSE }
+    else if (c == '"') q <- TRUE
+    else if (c == "(") depth <- depth + 1L
+    else if (c == ")") depth <- depth - 1L
+    else if (c == "{" && depth == 0L) break
+    i <- i + 1L
+  }
+  if (i > n) return("")
+  dsapp_block_at(txt, structure(i, match.length = 1L))
+}
+#' 抠出某一条 CSS 规则的整块（这条规则不存在时返回 ""）
+#'
+#' ⚠️ 选择器后面那个 " {" 是必须的：没有它，`.dsapp-newmsg` 会先命中
+#'    `.dsapp-newmsg-btn`、`.dsapp-hist-focus` 会先命中 `.dsapp-hist-focus-host`
+#'    —— 抠出来的是**别人那一条**，后面所有断言都在错的地方量。
+v172_css <- v172_decomment(paste(readLines("www/app.css", warn = FALSE),
+                                 collapse = "\n"))
+v172_rule <- function(sel) {
+  i <- regexpr(paste0(sel, " {"), v172_css, fixed = TRUE)
+  if (as.integer(i) < 0L) return("")
+  dsapp_block_at(v172_css, i)
+}
+chk("★ 剥完注释的 app.css 还在（剥废了下面全都会静默通过）",
+    nchar(v172_css) > 30000 && grepl(".dsapp-newmsg {", v172_css, fixed = TRUE))
+
+v172_pill <- v172_rule(".dsapp-newmsg")
+chk("★★ 那一格默认 display:none（一出场就白占 ~40px 内容高度，scrollHeight 跟着漂）",
+    grepl("display: none", v172_pill, fixed = TRUE), v172_pill)
+chk("★★ 它靠 sticky 钉在滚动容器的**下沿**（bottom: 0；写成 top 就跑到顶上去了）",
+    grepl("position: sticky", v172_pill, fixed = TRUE) &&
+      grepl("bottom: 0", v172_pill, fixed = TRUE) &&
+      !grepl("top:", v172_pill, fixed = TRUE), v172_pill)
+chk("★ 点得着（外层 pointer-events:none + 内层 auto：这一条横贯整个宽度，
+     不这么做的话它压着的那些链接、复制按钮全点不着）",
+    grepl("pointer-events: none", v172_pill, fixed = TRUE) &&
+      grepl("pointer-events: auto", v172_rule(".dsapp-newmsg-btn"),
+            fixed = TRUE))
+chk("★★ 显不显示由 .is-on 这个类开关（前端只改类、不改文本）",
+    grepl("display: flex", v172_rule(".dsapp-newmsg.is-on"), fixed = TRUE))
+chk("★★ 两句文案**同时**在 DOM 里，由 .is-new 挑一条显示", {
+  a <- v172_rule(".dsapp-newmsg-text-new")
+  b <- v172_rule(".dsapp-newmsg.is-new .dsapp-newmsg-text")
+  c2 <- v172_rule(".dsapp-newmsg.is-new .dsapp-newmsg-text-new")
+  grepl("display: none", a, fixed = TRUE) &&
+    grepl("display: none", b, fixed = TRUE) &&
+    grepl("display: inline", c2, fixed = TRUE)
+})
+
+# 横条：sticky 在**自己**身上，不在壳上（上面 ② 那条，实测 -300px）。
+v172_bar  <- v172_rule(".dsapp-hist-focus")
+v172_host <- v172_rule(".dsapp-hist-focus-host")
+chk("★★★ 横条的 sticky 写在它**自己**身上（写在壳上 = 空转，实测跟着滚走 300px）",
+    grepl("position: sticky", v172_bar, fixed = TRUE) &&
+      grepl("top: 0", v172_bar, fixed = TRUE))
+chk("★★★ 那个 uiOutput 的壳上**没有** position（它是 display:contents，
+     不生成盒子 —— 写上去看着对、一点用没有）",
+    !grepl("position", v172_host, fixed = TRUE),
+    if (nzchar(v172_host)) v172_host else "（没有这条规则，对）")
+
+# 前端：看护器里那一格只改类，不碰文本。
+v172_js <- v172_decomment(paste(readLines("www/app.js", warn = FALSE),
+                                collapse = "\n"))
+v172_sync <- v172_blk(v172_js, "function syncPill")
+chk("★ 抠到了 syncPill 的函数体（抠不到就是结构变了，下面两条不作数）",
+    nchar(v172_sync) > 100 && nchar(v172_sync) < 1200, nchar(v172_sync))
+chk("★★ 它只改 class（is-on / is-new）",
+    grepl("classList.add", v172_sync, fixed = TRUE) &&
+      grepl("classList.toggle", v172_sync, fixed = TRUE))
+chk("★★★ 它**一个字都不写**（写 textContent / innerText / innerHTML 就是喂给
+     MutationObserver 一次变更 → 自激，CPU 一直转）",
+    !grepl("textContent", v172_sync, fixed = TRUE) &&
+      !grepl("innerText", v172_sync, fixed = TRUE) &&
+      !grepl("innerHTML", v172_sync, fixed = TRUE),
+    v172_sync)
+chk("★ 点它的时候**先**贴底、**再**点「回到最新」（顺序反了会被看护器还原回去）", {
+  blk <- v172_blk(v172_js, "pill.addEventListener(", open = "(")
+  p1 <- as.integer(regexpr("api.force()", blk, fixed = TRUE))
+  p2 <- as.integer(regexpr("dsapp-hist-focus-btn", blk, fixed = TRUE))
+  nchar(blk) > 50 && nchar(blk) < 1500 && p1 > 0L && p2 > 0L && p1 < p2
+})
+
+# R 侧：那一格必须是 .dsapp-chat-scroll 的**最后一个**子元素（sticky 的包含块
+# 才真的是滚动容器），而且两句文案都在。
+v172_chat_src <- strip_comments(paste(readLines("R/mod_chat.R", warn = FALSE),
+                                      collapse = "\n"))
+chk("★★ 那一格长在消息流的最后（服务端只画这一次，位置上必须一次到位）", {
+  blk <- v172_blk(v172_chat_src, 'div(class = "dsapp-chat-scroll"', open = "(")
+  cls <- regmatches(blk, gregexpr('class = "dsapp-[a-z_-]+"', blk))[[1]]
+  # ⚠️ 取值不能写 `sub('.*"', '', x)` —— `.*` 是贪婪的，它会一直吃到**结尾
+  #    那个引号**，剩下的正好是空串，于是 startsWith("") 恒为 FALSE。
+  #    （第一版就是这么红的，而报告里那句话说得很像"位置放错了"。）
+  last <- if (length(cls)) sub('^class = "(.*)"$', '\\1', cls[length(cls)]) else ""
+  nchar(blk) > 500 && length(cls) > 3 && startsWith(last, "dsapp-newmsg")
+})
+chk("★ 两句文案都在源里（缺一句 = 有一档状态没字）",
+    grepl('"回到最新"', v172_chat_src, fixed = TRUE) &&
+      grepl('"有新消息 · 回到最新"', v172_chat_src, fixed = TRUE))
+
+# ---------------------------------------------------------------------------
+# ★★ Test_V17.2 item 3：跨会话 —— 能看到什么、**看不到**什么
+# ---------------------------------------------------------------------------
+# 用户原话：「当前系统是否支持跨会话识别文件、上下文？如果不能，我希望做到」。
+#
+# 答案分两半，**两半都要钉**：
+#   · 文件：支持。文件区是按账号共用的，别的对话同步出去的产物在这个对话里
+#           也看得见 —— 但以前清单上只有一行路径，模型分不清那行是用户传的、
+#           是自己上一轮跑的、还是**另一个对话**的成果（三者的正确处理方式
+#           完全不同）。V17.2 给它加了来源标记。
+#   · 正文：不支持，而且**不打算**支持 —— 对话正文按 session 隔离
+#           （db_messages_get 就是 `WHERE session_id = ?`）。所以提示词里
+#           必须**明写**这一句：不写的话模型会照着标题编出"上次我们做了
+#           差异分析"这种没发生过的事，而用户从界面上完全看不出来那是编的。
+#
+# ⚠️⚠️ 这一节最要紧的一条是**阴性对照**：别的账号的产物、别的账号的对话标题
+#    都不许出现。少了它，"跨会话看得见"和"越权看得见别人的东西"在屏幕上
+#    一模一样 —— 而后者是安全事故，前者是功能。
+#
+# ⚠️ 复用 item 1 的 v172_con / v172_uid（同一个临时库和临时数据根），不另开
+#    一套 —— 这里要真读盘上的文件，多一套夹具就多一个"到底在量谁"的疑问。
+v172_bfs <- function(sid) build_file_section(sid, v172_cfg)
+
+# ---- 夹具：甲有两个对话，乙是另一个账号 ----
+v172_sidA <- db_session_create("V172 当前的对话", user_id = v172_uid,
+                               con = v172_con)
+v172_sidB <- db_session_create("V172 上个对话", user_id = v172_uid,
+                               con = v172_con)
+v172_relB <- dsapp_sync_dir(v172_sidB, v172_cfg)
+v172_b <- v172_pub(v172_sidB, file.path(v172_relB, "results", "b.csv"), "b")
+v172_relA <- dsapp_sync_dir(v172_sidA, v172_cfg)
+v172_a <- v172_pub(v172_sidA, file.path(v172_relA, "results", "a.csv"), "a")
+db_message_add(v172_sidB, "user", "乙对话独有哨兵词-ZZQQ", con = v172_con)
+db_message_add(v172_sidB, "assistant", "收到", con = v172_con)
+db_message_add(v172_sidA, "user", "当前对话的话", con = v172_con)
+
+# 另一个账号（乙）：自己的对话、自己的产物
+v172_u2  <- mkuser("V172乙", "v172b@selftest.local", "13800000702", "RNA",
+                   v172_con)
+v172_uid2 <- as.integer(v172_u2$user$id)
+v172_cfg2 <- dsapp_config_user(v172_uid2, v172_tcfg)
+v172_sidC <- db_session_create("V172 别人的对话", user_id = v172_uid2,
+                               con = v172_con)
+v172_relC <- dsapp_sync_dir(v172_sidC, v172_cfg2)
+v172_cheat <- file.path(v172_cfg2$files_dir, v172_relC, "secret.csv")
+dir.create(dirname(v172_cheat), recursive = TRUE, showWarnings = FALSE)
+writeLines("secret", v172_cheat)
+invisible(dsapp_file_owner_set(file.path(v172_relC, "secret.csv"), v172_uid2,
+                               con = v172_con))
+invisible(db_ws_pub_set(v172_sidC, file.path(v172_relC, "secret.csv"),
+                        file.path(v172_relC, "secret.csv"), con = v172_con))
+db_message_add(v172_sidC, "user", "丙对话独有哨兵词-WWQQ", con = v172_con)
+
+v172_txtA <- v172_bfs(v172_sidA)
+chk("★ 清单拼出来了（拼不出来下面全在空串上白送）",
+    nchar(v172_txtA) > 500 && grepl("可用数据文件", v172_txtA, fixed = TRUE),
+    nchar(v172_txtA))
+
+chk("★★ 上个对话的产物，在这个对话的清单里**看得见**（这就是「跨会话文件」）",
+    grepl(file.path(v172_relB, "results", "b.csv"), v172_txtA, fixed = TRUE))
+chk("★★ 而且标着它是**哪个**对话的产物（只有路径的话模型分不清来源）",
+    grepl(sprintf("%s/results/b.csv", v172_relB), v172_txtA, fixed = TRUE) &&
+      grepl("对话「V172 上个对话」的产物", v172_txtA, fixed = TRUE), v172_txtA)
+chk("★ 本对话自己发布的标成另一档（两档混用 = 来源标记白加）",
+    grepl("本对话发布的产物", v172_txtA, fixed = TRUE))
+chk("★★★ 阴性对照：别的**账号**的产物一个字都不许出现（这是越权，不是功能）",
+    !grepl("secret.csv", v172_txtA, fixed = TRUE) &&
+      !grepl("V172 别人的对话", v172_txtA, fixed = TRUE))
+
+chk("★★ 「同一账号的其他对话」那一节在（用户说「接着上次那个继续」时的落点）",
+    grepl("同一账号的其他对话", v172_txtA, fixed = TRUE) &&
+      grepl("V172 上个对话", v172_txtA, fixed = TRUE))
+chk("★ 它带着那个对话的产物文件夹名（写死占位符的话模型会照抄进代码）",
+    grepl(sprintf("`%s/`", v172_relB), v172_txtA, fixed = TRUE))
+chk("★★ 空的（没说过话的）对话不进清单 —— 它既没产物也没标题可认", {
+  v172_sidE <- db_session_create("V172 空对话", user_id = v172_uid,
+                                 con = v172_con)
+  txt <- v172_bfs(v172_sidA)
+  !grepl("V172 空对话", txt, fixed = TRUE)
+})
+chk("★★★ 正文隔离写进了提示词（不写 = 模型照着标题编，界面上看不出来）",
+    grepl("对话正文是隔离的", v172_txtA, fixed = TRUE) &&
+      grepl("你读不到那边", v172_txtA, fixed = TRUE), v172_txtA)
+chk("★★★ 而且这是**真的**：另一个对话的正文一个字都读不到", {
+  # 结构判据：db_messages_get 只认 session_id。
+  src <- strip_comments(paste(readLines("R/db.R", warn = FALSE),
+                              collapse = "\n"))
+  blk <- v172_blk(src, "db_messages_get <- function")
+  ok_sql <- grepl("WHERE session_id = ?", blk, fixed = TRUE)
+  # 行为判据：拿 B 的 id 只能读到 B 的，拿 A 的 id 读不到 B 的哨兵词。
+  mb <- db_messages_get(v172_sidB, con = v172_con)
+  ma <- db_messages_get(v172_sidA, con = v172_con)
+  ok_sql && nrow(mb) >= 2L && any(grepl("ZZQQ", mb$content, fixed = TRUE)) &&
+    nrow(ma) >= 1L && !any(grepl("ZZQQ", ma$content, fixed = TRUE)) &&
+    !grepl("ZZQQ", v172_txtA, fixed = TRUE)
+})
+chk("★★★ 阴性对照同上：别人对话的正文也读不到", {
+  mc <- db_messages_get(v172_sidC, con = v172_con)
+  nrow(mc) >= 1L && any(grepl("WWQQ", mc$content, fixed = TRUE)) &&
+    !grepl("WWQQ", v172_txtA, fixed = TRUE)
+})
+
+chk("★★ 别的对话多了要**如实说少列了几个**（不说的话模型以为账号里就这几件事）", {
+  for (i in seq_len(DSAPP_PROMPT_CONV_MAX + 3L)) {
+    s <- db_session_create(sprintf("V172 更早的 %02d", i), user_id = v172_uid,
+                           con = v172_con)
+    db_message_add(s, "user", "话", con = v172_con)
+  }
+  txt <- v172_bfs(v172_sidA)
+  # 数出来的"没列出来"必须和真实条数对得上，不能只判"有那句话" ——
+  # 写死一个数（比如 sprintf 里漏了变量）时，"有那句话"照样绿。
+  cv <- dsapp_conv_index(v172_uid, v172_sidA, con = v172_con)$convs
+  # 和源码里同一个过滤条件（排除自己、排除没说过话的）—— 直接 nrow-1 的话
+  # 把上面那个空对话也算进去了，于是"应该少 3 个"写成 4，而这条会假红。
+  n_other <- sum(!cv$is_self & !is.na(cv$n_msg) & cv$n_msg > 0L)
+  expect  <- n_other - DSAPP_PROMPT_CONV_MAX
+  grepl(sprintf("还有 %d 个更早的对话没列出来", expect), txt, fixed = TRUE) &&
+    expect > 0L
+})
+chk("★★ 索引取不到时整段降级：清单还是那份清单，只是少了来源标记", {
+  # 拿一个根本不存在的账号去问 —— 必须**返回空**而不是抛。
+  # 抛出去的话 build_file_section 整个拼不出来，用户那边是"发不出消息"。
+  b <- dsapp_conv_index(NA_integer_, "x", con = v172_con)
+  e <- tryCatch(dsapp_conv_index(99999999L, "x", con = v172_con),
+                error = function(e) NULL)
+  identical(nrow(b$convs), 0L) && identical(nrow(b$pub), 0L) &&
+    !is.null(e) && identical(nrow(e$convs), 0L)
+})
+chk("★ 提示词头部那段「行尾标着…」的说明书也在（标记要有图例才读得懂）", {
+  # ⚠️ 用 fixed 找，别用正则 —— 里面有全角括号和 `「」`。
+  grepl("行尾标着", v172_txtA, fixed = TRUE) &&
+    grepl("只读镜像", v172_txtA, fixed = TRUE)
+})
+
+# ---------------------------------------------------------------------------
+# ★★ Test_V17.2 item 4：挂机时任务挂了，AI 自己接手 —— **结构**这一层
+# ---------------------------------------------------------------------------
+# 用户原话：「这类任务100%不需要用户确认，应该能自动运行才对」。
+#
+# 真行为（起真进程、看 agent_runs 那行有没有从 finish 换成 full）在
+# tests/ui_v172/t_autofix_unattended.R 里量，那是**唯一**能证明"接手发生了"
+# 的方式。这一节钉的是它**为什么会不生效**的那几个结构点 —— 每一条都对应
+# 一个"源码里看着对、跑起来是死的"：
+#
+#   ① 守护进程里**不能**再起 callr 子进程。实测（2026-10-08）：callr 的
+#      孙进程会被中间进程的退出带走，`supervise = FALSE` 拦不住。第一版
+#      就是 `dsapp_detach_start()` 起进程，测试 B 节当场红：库里那行永远
+#      停在 running、对话里一个字不多、日志一个字没有。
+#   ② 收尾 / 写回对话 / 销登记 三件事必须排在接手**之前**。特别是销登记：
+#      agent_runs 上 session_id 是 UNIQUE，不先销掉 finish 那条，接手那条
+#      full 记录根本写不进去。
+#   ③ 参数不能各拼一份：`dsapp_detach_start`（关页面）和自动接手（挂机）
+#      必须共用 `.dsapp_detach_begin`，否则"盯着修的那次"和"挂机修的那次"
+#      是两个不同的请求，而用户无从察觉。
+#
+# ⚠️ 一律先剥注释再扫：这几条的正上方就是解释它们的注释，里面白纸黑字写着
+#    `r_bg`、`as.integer(max_iter)` 这些词。
+v172_det <- strip_comments(paste(readLines("R/detach.R", warn = FALSE),
+                                 collapse = "\n"))
+chk("★ 抠到了三个函数体（抠不到 = 结构变了，下面全不作数）", {
+  a <- v172_blk(v172_det, ".dsapp_autofix_takeover <- function")
+  b <- v172_blk(v172_det, ".dsapp_detach_begin <- function")
+  c2 <- v172_blk(v172_det, "dsapp_detach_start <- function")
+  d <- v172_blk(v172_det, ".dsapp_task_sitter_worker <- function")
+  assign("v172_tk", a, envir = globalenv())
+  assign("v172_bg", b, envir = globalenv())
+  assign("v172_st", c2, envir = globalenv())
+  assign("v172_sit", d, envir = globalenv())
+  nchar(a) > 800 && nchar(a) < 6000 && nchar(b) > 500 && nchar(b) < 4000 &&
+    nchar(c2) > 200 && nchar(c2) < 2000 && nchar(d) > 3000
+})
+
+chk("★★★ ①接手那条路**不另起进程**（callr 的孙进程会被中间进程的退出带走）",
+    !grepl("r_bg(", v172_tk, fixed = TRUE) &&
+      !grepl("callr::", v172_tk, fixed = TRUE) &&
+      !grepl("r_bg(", v172_sit, fixed = TRUE), v172_tk)
+chk("★★★ ①而是**自己变成**那段循环（守护进程已经把 R/ 全 source 过了）",
+    grepl("do.call(.dsapp_agent_worker, args)", v172_tk, fixed = TRUE))
+chk("★★ ①它走的是共用的前一半（登记 + 拼参数），不是自己拼一份",
+    grepl(".dsapp_detach_begin(", v172_tk, fixed = TRUE) &&
+      !grepl("dsapp_arun_begin(", v172_tk, fixed = TRUE))
+chk("★ ①文案按 origin 分档：autofix 那一档说的是「任务失败了、平台接手修」",
+    grepl('origin = "autofix"', v172_tk, fixed = TRUE))
+chk("★ ①resume 故意是 NULL（任务已经结束了，没有「还在跑的那个」要接手）",
+    grepl("resume = NULL", v172_tk, fixed = TRUE))
+
+chk("★★★ ②收尾 → 写回对话 → 销登记 → 接手，顺序不能动", {
+  p_close <- as.integer(regexpr("dsapp_task_closeout(task_id, res$result",
+                                v172_sit, fixed = TRUE))
+  p_write <- as.integer(regexpr("dsapp_task_result_write(task_id, sid",
+                                v172_sit, fixed = TRUE))
+  p_fin   <- as.integer(regexpr("dsapp_arun_finish(", v172_sit, fixed = TRUE))
+  p_fix   <- as.integer(regexpr(".dsapp_autofix_takeover(", v172_sit,
+                                fixed = TRUE))
+  # 四个都得找着，而且严格递增 —— 少一个就是 -1，会"恰好"排在前面，
+  # 于是这条断言在缺件时也是绿的（那种绿最难发现）。
+  p_close > 0L && p_write > 0L && p_fin > 0L && p_fix > 0L &&
+    p_close < p_write && p_write < p_fin && p_fin < p_fix
+})
+chk("★★★ ②销登记那一步是 finish（不销掉，接手那条 full 记录写不进去 —— UNIQUE）",
+    grepl('mode = "finish"', v172_sit, fixed = TRUE))
+chk("★★ ②现场快照透传给了接手（温度/上限/轮数/墙钟跟着走）",
+    grepl("params = params, max_iter = max_iter", v172_sit, fixed = TRUE) &&
+      grepl("wall_limit = wall_limit", v172_sit, fixed = TRUE))
+chk("★★ ②没接成手、而卡片上又写着「已经在自动重试」时**补一句交代**",
+    grepl("没有跑通，而这一次**没有**自动接手", v172_sit, fixed = TRUE))
+
+chk("★★★ ③参数只拼一份，两个入口共用（各写一份迟早分叉，而分叉没人看得出来）",
+    grepl(".dsapp_detach_begin(", v172_st, fixed = TRUE) &&
+      !grepl("dsapp_iter_store(", v172_st, fixed = TRUE) &&
+      !grepl("dsapp_wall_value(", v172_st, fixed = TRUE), v172_st)
+chk("★★★ ③轮数用 dsapp_iter_store 存（写成 as.integer(max_iter) 的话，
+     Inf 变成 NA —— 用户勾了「不设上限」，后台 6 轮就停了）",
+    grepl("max_iter = dsapp_iter_store(max_iter)", v172_bg, fixed = TRUE) &&
+      !grepl("as.integer(max_iter)", v172_bg, fixed = TRUE), v172_bg)
+chk("★ ③墙钟同理（漏传 = 用户选 8 小时、后台按 2 小时掐断，界面上看不出异常）",
+    grepl("wall_limit = dsapp_wall_value(wall_limit)", v172_bg, fixed = TRUE))
+chk("★ ③子进程的数据根由父进程给（.Renviron 会盖掉继承来的环境变量）",
+    grepl("data_root = cfg$data_root", v172_bg, fixed = TRUE))
+
+chk("★★ 那条真行为测试还在（它是唯一能证明「接手发生了」的东西，别被删掉）", {
+  f <- "tests/ui_v172/t_autofix_unattended.R"
+  file.exists(f) && file.size(f) > 5000
+})
 
 # ---------------------------------------------------------------------------
 section("按账号共享对话与任务（V5 item 7）")
@@ -18474,7 +19141,7 @@ chk("★★ 模型名为空时不发请求（0daysci 破了「必有静态清单
 #    出了线上问题，第一件事就是问"现在跑的是哪一版"，答错一次就等于在错的
 #    代码上排查。看它红了就改这一个字符串，别改成范围判断。
 chk("★ 版本号跟着涨了（页脚/关于页读的就是它）",
-    identical(DSAPP_VERSION, "Test_V16.10"))
+    identical(DSAPP_VERSION, "Test_V17.2"))
 
 # =============================================================================
 section("V13.7 item 5：离开页面之后，AI 接着把活干完（预设 + 后台进程）")
@@ -18810,22 +19477,24 @@ chk("★★★ 判全局权限的地方一律用 is_platform_admin，没有一�
   !grepl("is_admin = dsapp_user_is_admin(state$user)", v138_all_bare,
          fixed = TRUE)
 })
-chk("★★ 收窄不是「把 is_admin 参数删掉了事」：6 处明确传了平台判定", {
+chk("★★ 收窄不是「把 is_admin 参数删掉了事」：9 处明确传了平台判定", {
   # 上面那条查的是"一处 is_admin 都不许剩"，但要防住另一种改法 ——
   # 把 is_admin 参数整个删掉。那样默认值 FALSE，项目管理员确实进不来了，
   # **平台管理员也进不来**（别人共享给他的对话他看不了、任务页整片空），
-  # 而上面那条照样是绿的。所以这里要**正好 8 处**明确传了平台判定：
-  #   share.R 1 处 + mod_tasks.R 2 处 + mod_chat.R 5 处。
+  # 而上面那条照样是绿的。所以这里要**正好 9 处**明确传了平台判定：
+  #   share.R 1 处 + mod_tasks.R 2 处 + mod_chat.R 5 处 + mod_files.R 1 处。
   # mod_skills.R 那 4 处走 dsapp_skill_get 的默认 FALSE，是**对的**：
   # 公共技能靠 viewer_id 就够读，不该额外给管理员特权。
   #
   # ⚠️ 这个数**每加一处权限判定都要跟着改**（V16.1 从 6 涨到 8，两处都是
-  #    mod_chat.R 里新加的：item 3 的 del_gate、item 6 的 busy_badge）。
+  #    mod_chat.R 里新加的：item 3 的 del_gate、item 6 的 busy_badge；
+  #    V17 从 8 涨到 9，是 mod_files.R 的 pick_conv 补了越权闸门 ——
+  #    **它就是这条断言存在的意义**：加的时候没想到要改这里，跑红了才被逮住）。
   #    红了先数一遍是不是又有新调用点，别顺手把条件改成 `n >= 6` ——
   #    那样"少传了两处"就再也报不出来了。
   n <- length(gregexpr("is_admin = dsapp_user_is_platform_admin(state$user)",
                        v138_all_bare, fixed = TRUE)[[1]])
-  n == 8
+  n == 9
 })
 # 文件权限是"管理动作"里最容易顺手带出去的一项：给了项目管理员，他随手一下
 # 就能弄坏别人脚本里引用的文件名，而那不是任何人在"项目"这个尺度上管得着的事。
@@ -27261,8 +27930,8 @@ chk("★★★ 卡片标题按问题类型走（方框 ≠ 空表）", {
     !grepl("方框", h_data, fixed = TRUE)
 })
 
-chk("★★★ DSAPP_VERSION 是 Test_V16.10",
-    identical(DSAPP_VERSION, "Test_V16.10"))
+chk("★★★ DSAPP_VERSION 是 Test_V17.2",
+    identical(DSAPP_VERSION, "Test_V17.2"))
 
 # ---- V15.6 item 4：软错误不判会话死刑 --------------------------------------
 #
@@ -32981,9 +33650,10 @@ v1610_actbtn <- local({
     m <- regexpr("actionButton\\(", substr(txt, pos, nchar(txt)), perl = TRUE)
     if (is.na(m) || m < 0) break
     st <- pos + m - 1L + attr(m, "match.length") - 1L   # 指向 "("
-    depth <- 0L; i <- st; n <- nchar(txt)
+    CH <- dsapp_chars(txt)                      # 这一段扫的是**全仓**源码，最慢的一处
+    depth <- 0L; i <- st; n <- length(CH)
     while (i <= n) {
-      ch <- substr(txt, i, i)
+      ch <- CH[i]
       if (ch == "(") depth <- depth + 1L
       else if (ch == ")") { depth <- depth - 1L; if (depth == 0L) break }
       i <- i + 1L

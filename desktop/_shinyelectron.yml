@@ -16,9 +16,15 @@
 app:
   # 显示名。窗口标题由应用自己渲染（见 app.R），这里只影响安装包描述。
   name: "DS_App"
-  # 版本号由 build_exe.R 从 R/config.R 读，这里写一份是给直接调 export() 用的。
-  # ⚠️ 改了 R/config.R 的 DSAPP_VERSION 记得同步这一行。
-  version: "13.2.0"
+  # 版本号：**这一行是占位，正常打包时会被覆盖** ——
+  #   desktop/build_exe.R 从 R/config.R 读 DSAPP_VERSION，抠成语义化版本
+  #   （Test_V17.2 → 17.2.0）后**改写这一行再复制进临时副本**，仓库里这份原样不动。
+  #   （为什么必须改写：electron-builder 的 package.json `version` 只认语义化版本，
+  #     原样塞 "Test_V17.2" 会抛 `⨯ Invalid version` 而整条打包静默假绿 ——
+  #     见 build_exe.R 里 version_semver 那段。）
+  # ⚠️ 只有**直接对着仓库调 `export()`** 时才会用到这一行的字面值，那时它是错的也没人管；
+  #    想让那次也对，就跟 R/config.R 的 DSAPP_VERSION 手动同步。
+  version: "17.2.0"
 
 build:
   # r-shiny / py-shiny。本应用是 R 的。

@@ -982,6 +982,164 @@ dsapp_entry_delete <- function(rel, cfg = dsapp_config()) {
   list(ok = TRUE, msg = sprintf("已删除「%s」", paste(parts, collapse = "/")))
 }
 
+#' 删一个对话时，把它留在**文件管理区**里的东西一并清掉
+#'
+#' ★ Test_V17.2 item 1。用户原话：「Biomamba_ceshi 账号下，会话删除后，
+#' 文件页面的文件还存在」。
+#'
+#' 成因很直白：`db_session_delete()` 会删掉 `ws_published` 的行
+#' （R/db.R），但**盘上一个字节都不动** —— 删对话那条路只调了
+#' `dsapp_ws_delete()`，而它删的是**工作区**（`data/workspaces/chat-<sid>/`）。
+#' 产物同步出去的那一份在 `data/files/u<N>/<对话文件夹>/` 里，两者是不同的
+#' 目录。库里的行没了、盘上的文件还在，于是文件页里那个文件夹永远挂在那儿，
+#' 名字还是那个已经被删掉的对话 —— 用户能看见的正是这个。
+#'
+#' ## 删什么、留什么
+#'
+#' 判据只有一条：**`ws_published` 里记着的 `dest` 才是这个对话放进去的东西**。
+#'
+#'   · 自动同步（`dsapp_sync_artifacts`）写的是 `<同步文件夹>/<工作区相对路径>`
+#'   · 手动发布（`dsapp_publish_artifact`）写的是文件区**根**下的一个名字
+#'   · **目录不写**（同步那支碰到目录只 `dir.create` 就 next，见 files.R）
+#'
+#' 所以：`dest` 指向的文件删掉 → 删完之后空掉的目录顺手剪掉（产物多半在
+#' `results/` 这类子目录里，文件删干净了空壳还在，界面上照样看得见）→
+#' 剪完整个同步文件夹都空了才删这个文件夹。
+#'
+#' ⚠️ 用户**自己**传进那个文件夹里的东西（上传落点是"当前所在的这一层"，
+#'    见 mod_files.R 的 `perform_upload`）不在 `ws_published` 里 ⇒ **一律留着**，
+#'    文件夹也跟着留下。理由和 `dsapp_entry_delete` 只肯删空文件夹是同一条：
+#'    递归删一个目录意味着"我删掉自己的东西，顺手删掉别人放在里面的"。
+#'
+#' ## 两个必须守住的前提
+#'
+#' ⚠️ **必须在 `db_session_delete()` 之前调**。两个理由：`ws_published` 的行
+#'    那时候还在（db.R 里那句 DELETE 会清掉它），`sessions` 的行也还在
+#'    （`dsapp_config_sid()` 才查得到主人）。顺序反了就落到 `_anon` —— 一个
+#'    **永远空的**目录（R/config.R:1232 故意的），表现为"一个文件都没删"，
+#'    而且**不报错**。
+#'
+#' ⚠️ **绝不抛异常**。调用方正在删对话，这里任何一步失败都只能记进返回值：
+#'    删不掉几个文件不该把"删对话"整个搞挂（同一理由见 `dsapp_ws_delete`）。
+#'
+#' @param dry 只算不删。删确认弹窗里报的那个数就是它给的 —— 弹窗说的和
+#'   真删的**必须是同一把尺子**，否则又是"报 3 个、删 0 个"那种假账。
+#' @return list(n = 会删/已删的文件数, dir = 同步文件夹名或 NULL,
+#'   removed_dir = 文件夹是否也删掉了, kept = 文件夹里剩下的条目数,
+#'   freed = 释放的字节数)
+dsapp_session_files_purge <- function(sid, cfg = dsapp_config(), dry = FALSE) {
+  out <- list(n = 0L, dir = NULL, removed_dir = FALSE, kept = 0L, freed = 0)
+  if (is.null(sid) || !length(sid)) return(out)
+  sid <- as.character(sid[[1]])
+  if (is.na(sid) || !nzchar(sid)) return(out)
+
+  tryCatch({
+    # ⚠️ cfg 要按**对话的主人**重新绑一次：文件区是按账号分的
+    #    （data/files/u<N>/），拿一个别人的 cfg 进来会去他自己的区里找 ——
+    #    找不到就一个都不删，静默。
+    cs  <- dsapp_config_sid(sid, cfg)
+    con <- dsapp_db(cfg)
+    uid <- dsapp_cfg_uid(cs)
+
+    pubs <- tryCatch(db_ws_pub_map(sid, con = con), error = function(e) NULL)
+    # 别的对话也发布过同一个落点时不许动。理论上到不了这里（手动发布走
+    # dsapp_unique_path，自动同步一个对话一个文件夹），但"理论上"不是判据。
+    others <- tryCatch(DBI::dbGetQuery(con,
+      "SELECT DISTINCT dest FROM ws_published WHERE session_id <> ?",
+      params = list(sid))$dest, error = function(e) character(0))
+    others <- others[!is.na(others) & nzchar(others)]
+
+    # ⚠️ 落点要在**删文件之前**读出来：下面 dry 模式要拿它算 "同步文件夹里
+    #    还剩几个"，而那正是弹窗里那个 kept。
+    sdir <- tryCatch(db_sync_dir_get(sid, con = con), error = function(e) NULL)
+    n_in_dir <- 0L   # 待删的文件里，有几个落在这个同步文件夹内
+
+    if (!is.null(pubs) && nrow(pubs)) {
+      for (k in seq_len(nrow(pubs))) {
+        d <- as.character(pubs$dest[[k]])
+        if (is.na(d) || !nzchar(d) || d %in% others) next
+        p <- tryCatch(dsapp_file_path(d, cs, must_exist = FALSE),
+                      error = function(e) NULL)
+        if (is.null(p)) next
+        # 目录交给下面"剪空目录"那一步，这里只认文件（目录本来也不该出现在
+        # ws_published 里，真出现了就是有人手改过库）。
+        if (isTRUE(file.info(p)$isdir)) next
+        if (!file.exists(p)) {
+          # 文件早就不在了（用户删过，或者移动过 —— `dsapp_entry_move` 会搬
+          # file_owner 的行、**不搬** ws_published.dest，这是一笔已知的旧账）。
+          # 顺手把指向空气的归属行清掉，别统计成"删了一个"。
+          if (!dry) dsapp_file_owner_drop(d, con = con, user_id = uid)
+          next
+        }
+        sz <- file.info(p)$size
+        if (!dry) {
+          try(unlink(p, force = TRUE), silent = TRUE)
+          # ⚠️ **用 file.exists 复核，不要信 unlink 的返回值** —— 同
+          #    dsapp_entry_delete 那段说明：unlink 删不掉时也常常返回 0。
+          if (file.exists(p)) next
+          dsapp_file_owner_drop(d, con = con, user_id = uid)
+        }
+        out$n <- out$n + 1L
+        if (!is.na(sz)) out$freed <- out$freed + sz
+        if (!is.null(sdir) && nzchar(sdir) &&
+            (identical(d, sdir) || startsWith(d, paste0(sdir, "/")))) {
+          n_in_dir <- n_in_dir + 1L
+        }
+      }
+    }
+
+    # ---- 同步文件夹：剪掉空目录，空了才整个删 ----
+    #
+    # ⚠️ 这一段**不能**写成 `if (...) return(...)`：`return()` 在
+    #    `tryCatch({...})` 的花括号里返回的是**整个函数**，不是那个块 ——
+    #    2026-10-08 就是这么写的第一版，早退那一路返回了 NULL 而不是 `out`，
+    #    调用方拿到 `NULL$n` = NULL，屏幕上表现为"函数没说话"。
+    #    （`tryCatch` 的表达式在调用方的环境里求值，这是 R 的语义。）
+    if (!is.null(sdir) && nzchar(sdir)) {
+      out$dir <- sdir
+      droot <- tryCatch(dsapp_file_path(sdir, cs, must_exist = FALSE),
+                        error = function(e) NULL)
+      if (!is.null(droot) && dir.exists(droot) && !dsapp_is_link(droot)) {
+        if (!dry) {
+          # 从**最深**的开始剪。按路径长度降序就够了：子路径一定比父路径长，
+          # 所以父目录被检查时子目录已经处理完了，一趟就够。
+          subs <- list.dirs(droot, recursive = TRUE, full.names = TRUE)
+          subs <- subs[order(nchar(subs), decreasing = TRUE)]
+          for (dd in subs) {
+            if (identical(normalizePath(dd, mustWork = FALSE),
+                          normalizePath(droot, mustWork = FALSE))) next
+            if (dsapp_is_link(dd)) next
+            if (!length(list.files(dd, all.files = TRUE, no.. = TRUE))) {
+              try(file.remove(dd), silent = TRUE)  # file.remove 能删**空**目录
+            }
+          }
+        }
+
+        # dry 也要报 kept —— 弹窗里那句"你自己放进去的会留着"只有真有时才
+        # 该出现。dry 模式下文件还没删，所以要把**落在这一支里**的待删文件
+        # 减掉（只能减这一支：根上那些手动发布的不在这个文件夹里，一起减掉
+        # 就会算出负数，把"还有用户的东西"错报成"什么都没有"）。
+        n_left <- length(list.files(droot, recursive = TRUE, all.files = TRUE,
+                                    no.. = TRUE))
+        if (dry) n_left <- max(0L, n_left - n_in_dir)
+        out$kept <- n_left
+        if (n_left == 0L) {
+          if (dry) {
+            out$removed_dir <- TRUE
+          } else {
+            # ⚠️ 到这一步它已经是空的了，用 file.remove 而不是
+            #    `unlink(recursive = TRUE)`：那个会连**非空**目录一起端掉，
+            #    正是本函数上面明令不要的动作。空目录删不掉只是留个空壳。
+            if (isTRUE(file.remove(droot))) out$removed_dir <- TRUE
+          }
+        }
+      }
+    }
+  }, error = function(e) NULL)
+
+  out
+}
+
 #' 共享区里所有子目录（相对路径），给「移动到…」的下拉用
 #'
 #' 用 `find -type d` 而不是 `list.dirs(recursive = TRUE)`：后者会跟着目录
@@ -2261,6 +2419,56 @@ dsapp_sync_artifacts <- function(sid, artifacts, user_id = NULL,
     #   来凑数，就会在"只被刷掉 3 个、搬进去 297 个"时谎报 300 ——
     #   而那正是最常见的形态（撞上限时前面的都已经搬进去了）。
     blocked_names <- character(0)
+
+    # ★★ V17 item 2：工作区里**镜像自文件区**的那一层，不能反过来同步回文件区。
+    #
+    #   用户原话：「文件管理页面的 T2DM–PD公开数据项目：可直接复制的Agen-8251
+    #   里面的 data_raw，就是空的，但是它在言出法随页面的文件管理区就是有文件的」。
+    #
+    #   成因是一条**环**：
+    #     ① 执行代码前 `dsapp_mirror_shared()` 把**整个**管理区映进工作区根，
+    #        目录用 `dir.create` 真建、文件用软链（见它的说明：目录不能软链，
+    #        否则模型一句 write.csv 就写进了公共区）；
+    #     ② `dsapp_ws_artifacts()` 用 `find` 打快照，**软链不进、真目录进**；
+    #     ③ 于是差集里全是"镜像目录本身"，而 `isdir` 那一支只 `dir.create`。
+    #   ⇒ 每一次任务收尾，都把**别的对话的文件夹名字**在本次对话的文件夹里
+    #     重建一遍（空的）。生产里最刺眼的一条是自指：
+    #     `u11/按照…-9030/按照…-9030/` —— 只有"整片镜像"才会造出这种东西。
+    #
+    #   ⚠️ 判据用**首段名字**，因为镜像只发生在工作区**根**那一层
+    #      （`dsapp_mirror_shared(src_root = cfg$files_dir, dest_root = 工作区根)`），
+    #      而落点是 `<对话文件夹>/<原名>` —— 首段命中就够了，子层跟着一起挡掉。
+    mirror_names <- tryCatch(
+      list.files(cfg$files_dir, all.files = FALSE, no.. = TRUE),
+      error = function(e) character(0))
+
+    # ⚠️⚠️ 光凭"名字对得上"**不够**，会误伤：用户在管理区根上建过一个叫
+    #    `16S分析` 的文件夹，而模型完全可能在**工作区根**建一个同名的真产物
+    #    目录 —— 那时名字对得上，但它不是镜像，跳过它等于把用户的产物丢了
+    #    （丢得还很安静：界面只说"0 个产物"，不报错）。
+    #
+    #    真正区分得开的是**软链**：镜像目录是 `dsapp_mirror_shared()` 建的，
+    #    它给文件铺的是软链，模型自己不会建软链。所以要求"这一支里确实有软链"。
+    #    `-quit` 找到第一条就停（管理区动辄上万文件，不 early-exit 会明显变慢）；
+    #    `-maxdepth 3` 是因为软链就铺在镜像的前几层 —— 这一条只用来**证实**，
+    #    不要求穷尽，所以浅一点没有正确性代价。
+    #
+    #    ⚠️ 已知的残留取舍：管理区里那个文件夹**自己是空的**（一个文件都没有）
+    #       时，镜像出来的壳里也就没有软链 ⇒ 认不出来 ⇒ 还是会被建一次。
+    #       "一个空目录"和"一个镜像过来的空目录"在盘上**真的没有区别**，
+    #       这里认不了就是认不了；代价只是偶尔多一个空壳，不会丢产物。
+    ws_is_mirror <- function(seg) {
+      p <- tryCatch(dsapp_ws_path(seg, sid, cfg, must_exist = TRUE),
+                    error = function(e) NULL)
+      if (is.null(p) || !dir.exists(p)) return(FALSE)
+      hit <- suppressWarnings(system2(
+        "find", c(shQuote(p), "-maxdepth", "3", "-type", "l", "-print", "-quit"),
+        stdout = TRUE, stderr = FALSE))
+      length(hit) > 0 && any(nzchar(hit))
+    }
+    # 每个首段只 find 一次（一个会话的产物里同一段会反复出现）。
+    .mirror_cache <- new.env(parent = emptyenv())
+
     # ⚠️ 用**下标**循环而不是 `for (a in artifacts)`：到顶 break 的那一刻要
     #    报出"还剩几条没搬"，而 `which(artifacts == a)` 在重名时会数错
     #    （同一个相对路径出现两次是可能的 —— 入参是外部给的字符串向量）。
@@ -2272,6 +2480,20 @@ dsapp_sync_artifacts <- function(sid, artifacts, user_id = NULL,
       #    不是"以防万一"：这个函数的入参是**外部给的一个字符串向量**，
       #    它自己必须能扛住里面有什么。
       if (isTRUE(dsapp_ws_is_internal(a))) { skipped <- skipped + 1L; next }
+      # 镜像层（见上面那两段）。判据是**两件事同时成立**：
+      #   ① 首段名字出现在管理区根上；② 工作区里这一支**确实含软链**。
+      # 只看 ① 会误伤同名真产物，只看 ② 会把模型自己建的软链也当成镜像。
+      if (length(mirror_names)) {
+        seg <- strsplit(a, "/", fixed = TRUE)[[1]][1]
+        if (seg %in% mirror_names) {
+          known <- .mirror_cache[[seg]]
+          if (is.null(known)) {
+            known <- ws_is_mirror(seg)
+            assign(seg, known, envir = .mirror_cache)
+          }
+          if (isTRUE(known)) { skipped <- skipped + 1L; next }
+        }
+      }
       src <- dsapp_ws_path(a, sid, cfg, must_exist = TRUE)
       if (is.null(src)) { skipped <- skipped + 1L; next }
       # 共享区镜像进来的只读软链不是这个对话的产物 —— 它**本来就在**

@@ -306,55 +306,95 @@ dsapp_detach_start <- function(sid, user_id = NULL, target = NULL,
                                #    共用了同一句话。
                                origin = "detach",
                                cfg = dsapp_config()) {
-  if (is.null(sid) || !nzchar(as.character(sid))) return(invisible(FALSE))
-  sid <- as.character(sid)
-
-  # 同一对话只允许一条。已经有一条在跑就别再起 —— 两条会各自往同一条对话里
-  # 写消息、各自提交任务，用户回来看到两份交错的分析过程。
-  if (dsapp_arun_running(sid, cfg)) return(invisible(FALSE))
-
-  dsapp_arun_begin(sid, user_id = user_id, target = target,
-                   max_iter = max_iter, wall_limit = wall_limit,
-                   params = params, mode = mode, cfg = cfg)
+  args <- .dsapp_detach_begin(sid, user_id = user_id, target = target,
+                              max_iter = max_iter, wall_limit = wall_limit,
+                              params = params, scene = scene, resume = resume,
+                              mode = mode, origin = origin, cfg = cfg)
+  # NULL = 闸门挡住（已经有循环在跑 / sid 是空）。和原来一样：不起进程，
+  # 也**不**留下任何登记。
+  if (is.null(args)) return(invisible(FALSE))
 
   ok <- tryCatch({
     callr::r_bg(
       func = .dsapp_agent_worker,
-      args = list(app_dir = cfg$app_dir, sid = sid,
-                  user_id = as.integer(user_id %||% NA),
-                  resume = resume,
-                  # ⚠️ 这两个数是**逐个显式传**的，不能省（callr 的 args 是
-                  #    一份干净的列表，worker 里引用不到外部的任何对象）。
-                  #    漏传 wall_limit 的话，用户选了 8 小时关的页面，
-                  #    后台按默认 2 小时跑 —— 而对话里那句"已达自动结束时间
-                  #    （2 小时）"看起来完全正常，只是和他选的不一样。
-                  # ★ V16.3 item 4：**不能**写 as.integer(max_iter) ——
-                  #   as.integer(Inf) 是 NA，而 NA 到了 worker 里会被
-                  #   dsapp_iter_value() 兜回 6 轮：用户勾了"不设上限"、
-                  #   关掉页面让它自己跑，6 轮就停了，界面上看不出任何异常。
-                  target = target, max_iter = dsapp_iter_store(max_iter),
-                  wall_limit = dsapp_wall_value(wall_limit),
-                  params = params, scene = scene,
-                  # ⚠️ 和上面两个数同理：callr 的 args 是一份干净的列表，
-                  #    漏传的话 worker 拿到默认的 "detach"，于是一次定时任务
-                  #    会在对话里写「页面关闭了」——**不报错**，只是那句话是假的。
-                  origin = origin,
-                  # 子进程不许自己推导数据目录，用父进程这份。
-                  # 理由和 jobs.R 的 .dsapp_job_worker 里那段一字不差：
-                  # 子进程启动时会读 <应用目录>/.Renviron，那里的值会**盖掉**
-                  # 继承来的同名环境变量。
-                  data_root = cfg$data_root),
-      stdout = file.path(cfg$logs_dir, sprintf("detach-%s.out", sid)),
-      stderr = file.path(cfg$logs_dir, sprintf("detach-%s.err", sid)),
+      args = args,
+      stdout = file.path(cfg$logs_dir, sprintf("detach-%s.out", args$sid)),
+      stderr = file.path(cfg$logs_dir, sprintf("detach-%s.err", args$sid)),
       supervise = TRUE)
     TRUE
   }, error = function(e) {
-    dsapp_arun_update(sid, state = "orphan",
+    dsapp_arun_update(args$sid, state = "orphan",
                       note = paste0("后台进程没能起来：", conditionMessage(e)),
                       cfg = cfg)
     FALSE
   })
   invisible(ok)
+}
+
+#' 后台循环的"前一半"：登记 + 把 worker 要的参数拼好
+#'
+#' ★★ Test_V17.2 item 4 拆出来的。原来这一半和"起进程"是**焊在一起**的，
+#'    而挂机自动接手那条路要的是前一半加**另一样东西**：
+#'
+#'    守护进程（.dsapp_task_sitter_worker）里**不能**再起一个 callr 子进程。
+#'    实测（2026-10-08）：callr 的子进程再 `r_bg()` 一个孙进程，**中间那个
+#'    进程一退出，孙进程就跟着没了**，跟孙进程自己的 `supervise = FALSE`
+#'    一点关系都没有 ——
+#'      · 中间进程活着（`Sys.sleep(20)`）→ 孙进程正常写完文件；
+#'      · 中间进程一 `return()` → 孙进程当场消失，连一行 stderr 都不留。
+#'    而守护进程干完活就**必须**退出。于是那条路上"起一个新进程接着跑"这个
+#'    动作**根本不可能成功** —— 症状是 agent_runs 里那一行永远停在 running、
+#'    对话里一个字都不多、日志里只有一句"已接手"。（第一版就是这么写的，
+#'    测试 B 节当场红了。）
+#'
+#'    所以守护进程走的是"**自己变成**那段循环"：它已经把 R/ 全 source 过了，
+#'    调 `.dsapp_agent_worker()` 就是把那段循环在这个进程里跑一遍。
+#'    前一半（登记 + 拼参数）两边**共用这一份** —— 各写一份的话，
+#'    "盯着跑"和"挂机跑"的参数迟早不一样，而那种分叉没人看得出来。
+#'
+#' @return 参数列表（喂给 .dsapp_agent_worker），或者 NULL（这一对话已经有
+#'         循环在跑了 / sid 是空的）。**不抛异常。**
+.dsapp_detach_begin <- function(sid, user_id = NULL, target = NULL,
+                                max_iter = DSAPP_AGENT_MAX_ITER,
+                                wall_limit = DSAPP_AGENT_WALL_DEF,
+                                params = NULL, scene = "agent",
+                                resume = NULL, mode = "full",
+                                origin = "detach", cfg = dsapp_config()) {
+  if (is.null(sid) || !nzchar(as.character(sid))) return(NULL)
+  sid <- as.character(sid)
+
+  # 同一对话只允许一条。已经有一条在跑就别再起 —— 两条会各自往同一条对话里
+  # 写消息、各自提交任务，用户回来看到两份交错的分析过程。
+  if (dsapp_arun_running(sid, cfg)) return(NULL)
+
+  dsapp_arun_begin(sid, user_id = user_id, target = target,
+                   max_iter = max_iter, wall_limit = wall_limit,
+                   params = params, mode = mode, cfg = cfg)
+
+  list(app_dir = cfg$app_dir, sid = sid,
+       user_id = as.integer(user_id %||% NA),
+       resume = resume,
+       # ⚠️ 这两个数是**逐个显式传**的，不能省（callr 的 args 是一份干净的
+       #    列表，worker 里引用不到外部的任何对象）。
+       #    漏传 wall_limit 的话，用户选了 8 小时关的页面，后台按默认 2 小时
+       #    跑 —— 而对话里那句"已达自动结束时间（2 小时）"看起来完全正常，
+       #    只是和他选的不一样。
+       # ★ V16.3 item 4：**不能**写 as.integer(max_iter) ——
+       #   as.integer(Inf) 是 NA，而 NA 到了 worker 里会被 dsapp_iter_value()
+       #   兜回 6 轮：用户勾了"不设上限"、关掉页面让它自己跑，6 轮就停了，
+       #   界面上看不出任何异常。
+       target = target, max_iter = dsapp_iter_store(max_iter),
+       wall_limit = dsapp_wall_value(wall_limit),
+       params = params, scene = scene,
+       # ⚠️ 和上面两个数同理：漏传的话 worker 拿到默认的 "detach"，
+       #    于是一次定时任务会在对话里写「页面关闭了」——**不报错**，
+       #    只是那句话是假的。
+       origin = origin,
+       # 子进程不许自己推导数据目录，用父进程这份。
+       # 理由和 jobs.R 的 .dsapp_job_worker 里那段一字不差：
+       # 子进程启动时会读 <应用目录>/.Renviron，那里的值会**盖掉**
+       # 继承来的同名环境变量。
+       data_root = cfg$data_root)
 }
 
 # ---- 只管"当前这个任务跑完"（预设中间那一档）-------------------------------
@@ -376,8 +416,17 @@ dsapp_detach_start <- function(sid, user_id = NULL, target = NULL,
 #'   人会去读它 —— 直到用户下次登录（可能是明天），而这中间应用只要重启
 #'   一次，run/ 就被清干净了，那份结果**永久消失**。
 #'
+#' @param target,params,max_iter,wall_limit ★ Test_V17.2 item 4：给**接手**
+#'   准备的现场快照。原来这一档用不到它们（它只守着任务，不叫模型），
+#'   现在用得着了 —— 任务失败时它会再起一个完整循环让模型自己修
+#'   （见 .dsapp_autofix_takeover）。不传的话，挂机时 AI 自己修的那一次
+#'   用的是平台默认的温度/上限/轮数/墙钟，和用户盯着它修的那一次**不是
+#'   同一个请求**，而他完全无从察觉。默认值全 NULL = 老行为（平台默认）。
+#'
 #' @return TRUE/FALSE（起没起来）。和 dsapp_detach_start 一样，不抛。
-dsapp_detach_sit <- function(task_id, sid, user_id = NULL,
+dsapp_detach_sit <- function(task_id, sid, user_id = NULL, target = NULL,
+                             params = NULL, max_iter = NULL,
+                             wall_limit = NULL,
                              cfg = dsapp_config()) {
   if (is.null(task_id) || is.na(suppressWarnings(as.integer(task_id)))) {
     return(invisible(FALSE))
@@ -396,6 +445,17 @@ dsapp_detach_sit <- function(task_id, sid, user_id = NULL,
       args = list(app_dir = cfg$app_dir,
                   task_id = as.integer(task_id),
                   sid = if (is.null(sid)) NA_character_ else as.character(sid),
+                  # ★ Test_V17.2 item 4：这几个是给"任务挂了之后自动接手"
+                  #   用的现场快照（见 .dsapp_autofix_takeover）。
+                  #   ⚠️ 和 dsapp_detach_start 里那两行同一个道理，**必须逐个
+                  #      显式传**：callr 的 args 是一份干净的列表，worker 里
+                  #      引用不到外面的任何对象。而 max_iter 更要当心 ——
+                  #      转成 as.integer 的话 Inf（"不设上限"）会变成 NA，
+                  #      worker 里再被兜回 6 轮，用户勾的"不设上限"就不作数了。
+                  user_id = as.integer(user_id %||% NA),
+                  target = target, params = params,
+                  max_iter = dsapp_iter_store(max_iter %||% DSAPP_AGENT_MAX_ITER),
+                  wall_limit = dsapp_wall_value(wall_limit %||% DSAPP_AGENT_WALL_DEF),
                   data_root = cfg$data_root),
       stdout = file.path(cfg$logs_dir, sprintf("sitter-%s.out", task_id)),
       stderr = file.path(cfg$logs_dir, sprintf("sitter-%s.err", task_id)),
@@ -658,6 +718,17 @@ dsapp_detach_sit <- function(task_id, sid, user_id = NULL,
     if (identical(as.character(origin %||% "")[1], "schedule"))
       "这次是定时订阅到点自动发起的检索，没有任何人在看着这个对话。\
 它会在后台把这一轮跑完，结果照样会写进这条对话，跑完还会发一封邮件到你的邮箱。"
+    else if (identical(as.character(origin %||% "")[1], "autofix"))
+      # ★ Test_V17.2 item 4：挂机时任务挂了，平台的「出错自动修」自己接手起的
+      #   这一段。⚠️ 这句话**不能**和下面那句共用 —— 那是三件不同的事：
+      #   定时任务（没人开过页面）、用户选了「一路跑完」（整段循环接着跑）、
+      #   用户选了「让当前任务跑完」而那个任务**失败了**（只有守护进程在，
+      #   现在由平台接手修）。写成同一句的话，用户会去翻自己的设置找一个
+      #   他从来没做过的选择。origin 这个参数存在的全部理由就是这个。
+      "刚才那个任务没有跑通。你关页面时选的是「让当前任务跑完」，\
+所以守着它的是后台的守护进程 —— 它把结果写回来了，但它不会把 AI 叫起来。\
+那件事由平台的「出错自动修」接手了：接下来这一段是 AI 自己在读那条报错、\
+改代码、重跑，不需要你确认。"
     else
       "页面关闭了，但你在设置里选了「一路跑完」，\
 所以这一段自动执行交给后台继续了。你可以关掉这个页面，结果照样会写进这条对话。")),
@@ -892,6 +963,151 @@ dsapp_detach_sit <- function(task_id, sid, user_id = NULL,
   invisible(TRUE)
 }
 
+# ---- ★★ Test_V17.2 item 4：挂机时的自动接手 ---------------------------------
+
+#' 任务挂着挂了：再起一个后台循环，让模型自己把它修好
+#'
+#' 用户原话：
+#'   「Biomamba_ceshi账号下的自动纠错似乎没能正常运行，即使是我挂载了
+#'    "长任务无人值守编排"的情况下。这类任务100%不需要用户确认，应该能自动
+#'    运行才对」—— 他附的就是卡片上那句「这一段没跑通，AI 已经在自动重试了」。
+#'
+#' ---- 现场（线上，2026-10-08，uid=11）---------------------------------------
+#'   对话 s-20261008180139-1174 / 任务 #576，10:23:58 失败：
+#'     unused argument (gene = "TCF3")
+#'   而 agent_runs 里那一行是 **mode = "finish"** —— 用户关页面时选的是
+#'   「让当前任务跑完」。那一档归 .dsapp_task_sitter_worker：守住任务、收尾、
+#'   把结果写回对话，然后**退出**。从头到尾没有任何进程把模型叫起来 ——
+#'   而卡片上"AI 已经在自动重试了"是**画卡片那一刻**写下的判断
+#'   （render.R 的 quiet_fail），挂机这条路上从来没有兑现过它。
+#'
+#' ---- 为什么不能让会话里那个 observer 顺手补一下 -----------------------------
+#'   前台那条路是 mod_chat.R 的 observeEvent(engine$state$running) 调
+#'   a$kick_env_fix()，而那是个**会话内的 R6 对象**：页面一关就没了。守护进程
+#'   里没有会话、没有循环、也调不到那个方法。它唯一能做的只有一件事 ——
+#'   **再起一个后台循环**，让模型自己看那条报错。就是下面这个函数。
+#'
+#' ---- 为什么不加频率闸 -------------------------------------------------------
+#'   这里**不需要**额外的计数闸。守护进程只在"用户关页面的那一刻正好有一个
+#'   任务在跑"时被起一次，所以一次挂机最多接手一次（同一个任务不会失败两次）；
+#'   接手起来的那个完整循环自带轮数上限和墙钟上限，它内部"改 → 跑 → 又挂"
+#'   那个圈由它自己消化 —— agent.R 的滑动窗口管的就是这件事。在这儿再加一层
+#'   计数，做出来的只会是"挂机时第三次失败就不理了"这种东西，那正是用户报的
+#'   毛病本身。
+#'
+#' ⚠️ 判据一律**复用**现成的：该不该让 AI 扛（dsapp_env_self_fix）、是不是
+#'    被人停掉的（dsapp_err_stopped）、开关读哪一列（uiprefs 的 agent_autofix）。
+#'    在这里重写一份的话，分叉出来的表现恰好就是"盯着跑会自己修、挂机跑不会"
+#'    —— 一字不差就是用户报的这条。
+#'
+#' @return list(taken = 起没起来, why = 一句话（给日志/给用户）,
+#'              quiet = 卡片上是不是写着"AI 已经在自动重试了"）。不抛异常。
+.dsapp_autofix_takeover <- function(task_id, sid, user_id = NULL, target = NULL,
+                                    params = NULL, max_iter = NULL,
+                                    wall_limit = NULL, cfg = dsapp_config()) {
+  no <- function(why, quiet = FALSE) {
+    list(taken = FALSE, why = why, quiet = isTRUE(quiet))
+  }
+
+  sid <- as.character(sid %||% "")[1]
+  if (is.na(sid) || !nzchar(sid)) return(no("这条对话已经被删了"))
+  tid <- suppressWarnings(as.integer(task_id))
+  if (is.na(tid)) return(no("没有任务号"))
+
+  # 只有**失败**才接手。成功、还在跑、或者任务行已经被删了，都什么都不做。
+  row <- tryCatch(db_task_get(tid, con = dsapp_db(cfg)), error = function(e) NULL)
+  if (is.null(row) || !nrow(row)) return(no("查不到这条任务"))
+  status <- as.character(row$status[1] %||% "")
+  if (!nzchar(status) || identical(status, "success")) {
+    return(no("这一次没有失败"))
+  }
+  err <- as.character(row$stderr[1] %||% "")
+  env <- tryCatch(dsapp_env_failure(stderr = err, status = status),
+                  error = function(e) list(is_env = FALSE))
+
+  # 账号：参数里没带就从对话行上取。⚠️ 必须拿到 —— worker 第一步就是
+  # `if (is.na(user_id))`，拿不到它后台循环会在第一秒里停掉，还留一句
+  # "这个对话没有归属账号"。
+  uid <- suppressWarnings(as.integer(user_id %||% NA))
+  if (is.na(uid)) {
+    uid <- tryCatch(as.integer(DBI::dbGetQuery(
+      dsapp_db(cfg), "SELECT user_id FROM sessions WHERE id = ?",
+      params = list(sid))$user_id[1]), error = function(e) NA_integer_)
+  }
+  if (is.na(uid)) return(no("这个对话没有归属账号"))
+
+  # 「出错自动修」关着就不接手 —— 那是用户自己关掉的。
+  # ⚠️ 读的是**账号的偏好**（uiprefs 的 agent_autofix），不是界面上那个勾选框：
+  #    挂机时没有会话，input$agent_fix 根本不存在。两边读同一个来源，
+  #    才不会出现"界面上勾着、挂机却不修"（或者反过来，更糟）。
+  # ⚠️ 读不到偏好（库出错）时**按开处理**：这个开关默认是开的，而"读不出来
+  #    就什么都不做"会让一次真实的失败石沉大海。宁可多修一次。
+  p <- tryCatch(dsapp_uipref_get(uid, con = dsapp_db(cfg)),
+                error = function(e) list(agent_autofix = TRUE))
+  pref_on <- !isFALSE(p$agent_autofix)
+
+  # 卡片上那句"AI 已经在自动重试了"写不写，取决于**同一个**开关加
+  # dsapp_env_self_fix —— 见 render.R 的 quiet_fail。这里算出来是为了：
+  # 万一没接成手，得有一句话去补上那个承诺（下面 call 站点用它决定要不要
+  # 写一条【平台提示】）。承诺过的才需要交代，没承诺过的不用。
+  quiet <- pref_on && isTRUE(dsapp_env_self_fix(env))
+
+  if (!pref_on) return(no("你的设置里关掉了「出错自动修」", quiet))
+  # 用户自己停掉的任务**不接手**。这条判据和卡片上"这不是待修的 bug"是
+  # 同一个（dsapp_err_stopped）—— 用户点了停止，AI 又把它跑起来，那不是
+  # 自动纠错，那是跟用户对着干。
+  if (dsapp_err_stopped(err)) return(no("这个任务是被人停掉的，不是自己挂的", quiet))
+
+  # 已经有循环在跑就别插队：两条循环会各自往同一条对话里写消息、各自提交任务，
+  # 用户回来看到两份交错的分析过程。（.dsapp_detach_begin 里也有一道同样的闸，
+  # 这里提前问一次只是为了把原因说清楚。）
+  if (dsapp_arun_running(sid, cfg)) return(no("这个对话已经有一个后台循环在跑", quiet))
+
+  # ★★ 这里**不另起进程** —— 守护进程自己就是那段循环。原因见
+  #    .dsapp_detach_begin() 头上那段实测记录（callr 的孙进程会被中间进程的
+  #    退出带走，而守护进程干完活必须退出）。所以下面这一句是**阻塞**的：
+  #    它在守护进程这个进程里把整段 agent 循环跑完（可能几十分钟，直到
+  #    wall_limit 或者轮数到顶），跑完才 return。
+  # ⚠️ 试过的那版（dsapp_detach_start → callr::r_bg(.dsapp_agent_worker)）在
+  #    测试里是 **红的**：库里的行永远停在 running、对话里一个字都不多、
+  #    detach-*.out/.err 一个字都没有 —— 因为它一起来就被带走了。
+  #    表现和"自动纠错没运行"一模一样，正是用户报的那一条。
+  args <- .dsapp_detach_begin(
+    sid, user_id = uid, target = target,
+    # ⚠️ 和用户关页面那一次用的是**同一份快照**（mod_chat 的 session-end 里
+    #    传给 dsapp_detach_sit 的那几个数）。不传的话后台循环会拿到平台默认的
+    #    温度/上限/轮数/墙钟，于是"挂机时 AI 自己修的这一次"和"你盯着它修的
+    #    那一次"是两次参数不同的请求 —— 而用户完全无从察觉。
+    max_iter = max_iter %||% DSAPP_AGENT_MAX_ITER,
+    wall_limit = wall_limit %||% DSAPP_AGENT_WALL_DEF,
+    params = params, scene = "agent",
+    # resume 是 NULL，**故意**的：任务已经结束了（结果都写回对话了），
+    # 不存在"还在跑的那个任务"要接手 —— 后台循环该做的是看那条报错，
+    # 从头说下一步。
+    resume = NULL, mode = "full",
+    # 文案：worker 进门那句【平台提示】按 origin 分三支，autofix 是其中一支。
+    # 不传的话它会写「你在设置里选了「一路跑完」」—— 用户明明选的是
+    # 「让当前任务跑完」，他会去翻自己的设置，找一个他从来没做过的选择。
+    origin = "autofix", cfg = cfg)
+  if (is.null(args)) return(no("这个对话已经有一个后台循环在跑", quiet))
+
+  # ⚠️ 日志落到守护进程自己那一份（logs/sitter-<task_id>.out|err），不再另开
+  #    detach-<sid>.* —— 起进程那条路才有重定向，这条路里 stdout 就是守护进程
+  #    的 stdout。找日志的人要知道这一条：挂机自动修的那一段在 sitter 的日志里。
+  taken <- tryCatch({
+    do.call(.dsapp_agent_worker, args)
+    TRUE
+  }, error = function(e) {
+    dsapp_arun_update(sid, state = "orphan",
+                      note = paste0("自动接手时出错：", conditionMessage(e)),
+                      cfg = cfg)
+    FALSE
+  })
+
+  if (!isTRUE(taken)) return(no("自动接手时出错", quiet))
+  list(taken = TRUE, why = "", quiet = quiet)
+}
+
 #' 守着当前任务跑完的守护进程（预设「让当前任务跑完」）
 #'
 #' ⚠️ 和上面那个一样：会被序列化到另一个 R 进程，不能引用外面的对象。
@@ -900,7 +1116,10 @@ dsapp_detach_sit <- function(task_id, sid, user_id = NULL,
 #'    不是一段循环。所以对话页上不会出现"AI 正在后台继续思考"那条横幅
 #'    （那句话说出去就是假的：没有在思考，只是在等一个进程结束）。用户回来
 #'    看到的直接就是那条执行结果，这才是实话。
-.dsapp_task_sitter_worker <- function(app_dir, task_id, sid, data_root = NULL) {
+.dsapp_task_sitter_worker <- function(app_dir, task_id, sid, data_root = NULL,
+                                      user_id = NULL, target = NULL,
+                                      params = NULL, max_iter = NULL,
+                                      wall_limit = NULL) {
   if (!is.null(data_root) && nzchar(as.character(data_root)[1])) {
     Sys.setenv(DSAPP_DATA_ROOT = as.character(data_root)[1])
   }
@@ -959,6 +1178,51 @@ dsapp_detach_sit <- function(task_id, sid, user_id = NULL,
           sid, state = if (isTRUE(ok)) "done" else "blocked",
           note = if (isTRUE(ok)) "" else "任务收尾失败，结果没能写回对话",
           mode = "finish", cfg = cfg), silent = TRUE)
+      }
+
+      # ---- ★★ Test_V17.2 item 4：挂了就自己接手 ---------------------------
+      #
+      # 用户原话：「这类任务100%不需要用户确认，应该能自动运行才对」。
+      #
+      # ⚠️ 顺序是**死的**，三件事都得排在它前面：
+      #   1. 收尾（closeout）   —— 不先收尾，任务行还停在 running，
+      #      接手起来的循环会以为"那个任务还在跑"，一直在那儿等它；
+      #   2. 写回对话           —— 模型被叫起来时要能读到那条报错。反过来的话
+      #      它只能对着空气排查，而表现和"模型瞎编"一模一样；
+      #   3. dsapp_arun_finish  —— 这一条最要紧：那张表上 session_id 是 UNIQUE，
+      #      守护进程这条 "finish" 记录不销掉，接手那条 full 记录**写不进去**
+      #      （.dsapp_detach_begin 进门第一句就是"已经在跑就别再起"）。
+      #      这是本函数里唯一一处不能挪动的顺序。
+      # ⚠️ 下面这一句是**阻塞**的：接手那条路不另起进程（原因见
+      #    .dsapp_detach_begin 头上那段实测），所以它会一直跑到那段循环
+      #    自己收手为止。return 在它后面 —— 也就是说这个守护进程的寿命
+      #    等于"守任务 + 修任务"两段之和。
+      if (!is.na(sid)) {
+        fx <- tryCatch(.dsapp_autofix_takeover(
+                          task_id, sid, user_id = user_id, target = target,
+                          params = params, max_iter = max_iter,
+                          wall_limit = wall_limit, cfg = cfg),
+                       error = function(e) {
+                         say("自动接手失败：", conditionMessage(e))
+                         list(taken = FALSE, why = "自动接手时出错", quiet = FALSE)
+                       })
+        say("自动接手：", if (isTRUE(fx$taken)) "已接手" else fx$why)
+        # 没接成手、而卡片上又写着"AI 已经在自动重试了" —— 那句承诺就没人
+        # 兑现了。**必须**补一句话，否则用户回来看到的是一句空头支票，
+        # 而他没有任何办法知道（这正是他这次报上来的那件事）。
+        # 只在这一种组合下写：卡片本来就会问用户的那些（关着开关、不是
+        # 自己能修的错），不需要再解释一遍"为什么没自动修"。
+        if (!isTRUE(fx$taken) && isTRUE(fx$quiet)) {
+          try(db_message_add(sid, "tool", paste0(
+            "【平台提示】\n",
+            sprintf("任务 #%d 没有跑通，而这一次**没有**自动接手（%s）。",
+                    task_id, fx$why),
+            "上面那张卡片上写着「AI 已经在自动重试了」，那是写下卡片时的判断 —— \
+你关页面时选的是「让当前任务跑完」，守着它的只有这个守护进程，\
+而它只管把结果写回来，不会把模型叫起来。\n",
+            "接着修的话：点那张卡片上的「重试这一步」，或者直接把报错发给我。"),
+            con = dsapp_db(cfg)), silent = TRUE)
+        }
       }
       return(invisible(TRUE))
     }

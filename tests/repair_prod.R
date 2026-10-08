@@ -184,7 +184,16 @@ scan_files <- function(uid) {
   #    一句和"这个账号没有目录"毫无关系的错。先判长度。
   if (is.null(root) || length(root) != 1L || is.na(root) || !dir.exists(root))
     return(c(n = 0L, foreign = 0L, odd = 0L))
-  fps <- list.files(root, recursive = TRUE, full.names = TRUE, all.files = FALSE,
+  # ⚠️⚠️ `all.files` 必须是 **TRUE**（2026-10-08 修）。
+  #    原来是 FALSE，于是**静默跳过所有点目录/点文件** —— 这把尺子自己少报，
+  #    而屏幕上那个数看着完全合理。实测：那次跑出来"盘上 523→525"，可真值是
+  #    "523→699"，差的 174 个正好是当时躺在文件区里的 `.skills/` 文档
+  #    （就是 V17.1 修的那件事）。
+  #    阳性对照（在 /tmp 里造 `.skills/` + 点文件 + 点目录）：FALSE 数出 2、
+  #    TRUE 数出 5、`find -type f` 真值 5 ⇒ 少报的是点路径。
+  #    ⚠️ 注意**现在**改完这个数不会变（那批已经清掉了）—— "改了没反应"
+  #    不等于没生效，要拿对照样本量，别拿现场数据量。
+  fps <- list.files(root, recursive = TRUE, full.names = TRUE, all.files = TRUE,
                     no.. = TRUE)
   if (!length(fps)) return(c(n = 0L, foreign = 0L, odd = 0L))
   inf <- file.info(fps)

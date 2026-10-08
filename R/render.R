@@ -2405,8 +2405,11 @@ dsapp_run_card <- function(t, content = "", files = character(0),
   # （app.R 的 e$abort），于是它和真报错长得一模一样 —— 而这两件事该说的话
   # 完全不同：一个是"这段代码有问题，让我看看"，另一个是"你自己停的，
   # 没跑完" 配一个「让 AI 分析这个报错」按钮只会让人以为哪里出错了。
-  stopped <- failed &&
-    grepl("已手动停止|已被中止|被中断|对话已删除|应用重启|页面关闭", err_body)
+  #
+  # ★ Test_V17.2 item 4：判据搬到 envfix.R 的 dsapp_err_stopped() 里了。
+  #   挂机时"要不要自动接手"要问**同一个问题**（用户自己停的任务，AI 不该
+  #   自己跑起来），两处各留一份正则就是等着它们分叉。
+  stopped <- failed && dsapp_err_stopped(err_body)
 
   # ★ V15.4 item 2 前半：失败时那句"坏在哪"（NULL = 拼不出来，不渲染）。
   #   ⚠️ 用 err_keep 而不是 err_body：err_body 里混着 R 的警告，而警告不是

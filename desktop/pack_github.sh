@@ -9,7 +9,9 @@
 # 产出：
 #   <输出目录>/            一个干净的工作树（**不含**数据、密钥、桌面版大包）
 #   <输出目录>/.gitignore  这份树自己的忽略表（写进去，不是从仓库拷）
-#   <输出目录>/发布到GitHub.md   推之前先看这份
+#   <输出目录>/../发布到GitHub-<版本>.md   推之前先看这份
+#       ⚠️ **故意放在树的**外面**：它是写给操作者的画外音，不是产品的一部分。
+#          放进树里 = 跟着推上公开仓库（V17.2 item 5，用户报的就是这个）。
 #
 # 然后这个脚本会（如果机器上有 git）就地 `git init` + 一次初始提交。
 # **它不联网、不碰 GitHub、不需要凭据** —— 推不推、推到哪，由你决定。
@@ -160,10 +162,31 @@ __pycache__/
 *.log
 .DS_Store
 Thumbs.db
+
+# ---- ★ 操作单（给推的人看的画外音，不是产品）--------------------------------
+# 它现在根本不写进树里（写在 <输出目录>/.. ），这一条是兜底：万一哪天
+# 有人图省事又往树里放一份，`git add -A` 也不会把它提交上去。
+# ⚠️ 只靠"文件名恰好不在 ls-files 里"不是守卫 —— 本仓栽过（`.skills/` 那次
+#    就是靠一句注释挡着，而快照用的是 find）。所以下面**还有**一条硬自检。
+发布到GitHub*.md
 GITIGNORE
 
+# ★ V17.2：`.gitignore` 写完就地验一遍**它到底吃进去了没有**。
+#   2026-10-08 我把上面那行「操作单」加到了 heredoc 的**终止符之后** ——
+#   于是那一行变成顶层 shell 命令，整个打包脚本 `exit 127`
+#   （`发布到GitHub*.md: command not found`）。这种"加错位置"不报语法错，
+#   只是让后面的整段悄悄变成命令，所以这里点名查，别靠肉眼。
+for _need in 'data/' '发布到GitHub*.md' 'history_Version/'; do
+  grep -qxF "$_need" "$OUT/.gitignore" \
+    || { echo "!! .gitignore 里没有 $_need —— 多半写到了 heredoc 终止符外面" >&2; exit 1; }
+done
+
 # ---- 发布说明：写进这棵树，推之前照着做 --------------------------------
-cat > "$OUT/发布到GitHub.md" <<RELEASENOTE
+# ⚠️⚠️ 这份**不写进树里**（V17.2 item 5）。它是操作单 —— 写给自己/运维的
+#    "接下来手点哪几个按钮"，不是产品的一部分，也不该出现在公共仓库首页。
+#    放在树的**同级**：仍然一眼能找到，但 `git add -A` 和推树的脚本都够不着它。
+NOTE="$(dirname "$OUT")/发布到GitHub-$VER.md"
+cat > "$NOTE" <<RELEASENOTE
 # 推到 GitHub（$VER）
 
 这份是**操作单**，照着做即可。树已经 \`git init\` 并提交好了，只差建仓库和推。
@@ -279,14 +302,27 @@ if [ -d "$OUT/mod_chat.R" ]; then echo "!! 树里有 mod_chat.R/（死代码）"
 #   跑了一次 `git init`，还把那句话的输出替换进了交付文件。
 #   这里钉住"那一行的正文必须原样带反引号"——再有人加 markdown 时漏了转义，
 #   这一条会红，而不是让某个命令在源目录里悄悄跑掉。
-if ! grep -qF '`git init`' "$OUT/发布到GitHub.md"; then
-  echo "!! 发布到GitHub.md 里的 \`git init\` 没原样出现 —— 多半是被当成命令执行掉了"
-  grep -n '操作单' "$OUT/发布到GitHub.md" | head -2
+if ! grep -qF '`git init`' "$NOTE"; then
+  echo "!! $NOTE 里的 \`git init\` 没原样出现 —— 多半是被当成命令执行掉了"
+  grep -n '操作单' "$NOTE" | head -2
   fail=1
 fi
 # 同族的兜底：交付文件里不该出现任何"命令的输出"味道的东西
-if grep -qF 'Git repository in' "$OUT/发布到GitHub.md"; then
-  echo "!! 发布到GitHub.md 里混进了 git 的输出（反引号被执行了）"; fail=1
+if grep -qF 'Git repository in' "$NOTE"; then
+  echo "!! $NOTE 里混进了 git 的输出（反引号被执行了）"; fail=1
+fi
+
+# ★★ V17.2 item 5：**树里不许有操作单**。
+#    2026-10-06 起 `发布到GitHub.md` 一直躺在树根上被推上公开仓库 ——
+#    用户 2026-10-08 报的就是这个：「这种属于你自己画外音的东西，不要上传」。
+#    上面虽然已经把它写到树外了，但那条 `.gitignore` 是**隐式**的（靠"名字
+#    恰好没被 git add"），本仓栽过好几次；这里点**名**查一遍。
+if [ -e "$OUT/发布到GitHub.md" ]; then
+  echo "!! 树里有 发布到GitHub.md —— 操作单不该进公开仓库（V17.2 item 5）"; fail=1
+fi
+_stray="$(find "$OUT" -maxdepth 1 -name '发布到GitHub*' 2>/dev/null || true)"
+if [ -n "$_stray" ]; then
+  echo "!! 树根上有操作单类的文件："; printf '%s\n' "$_stray" | sed 's/^/   /'; fail=1
 fi
 if [ "$fail" = 1 ]; then echo "!! 排除不干净，**不要推**"; exit 1; fi
 
@@ -398,5 +434,5 @@ cat <<EOF
      手工兜底才用 Releases → Draft a new release，附件传 $REL/ 里那三个 zip。
   4. 仓库根 README 里的徽章、Releases 链接都写成这个仓库，确认一眼
 
-⚠️ 推之前先看 $OUT/发布到GitHub.md。
+⚠️ 推之前先看 $NOTE（**在树的同级**，不跟着推上去）。
 EOF

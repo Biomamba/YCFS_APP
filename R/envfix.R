@@ -192,6 +192,28 @@ dsapp_env_self_fix <- function(env) {
   isTRUE(env$self_fix) || isTRUE(env$retryable)
 }
 
+#' 这次失败是不是"被人停掉的"，而不是一个待修的 bug
+#'
+#' ★ V9 item 8 立的规矩，Test_V17.2 item 4 把它从 render.R 里抽出来。
+#'
+#' 中止会把原因写进 stderr（app.R 的 e$abort），于是它和真报错长得一模一样 ——
+#' 而这两件事该说的话完全不同：一个是"这段代码有问题，让我看看"，另一个是
+#' "你自己停的，没跑完"。
+#'
+#' ⚠️ 为什么必须抽成一处：这个判据现在有**两个**使用点了 ——
+#'    卡片怎么画（render.R）和**挂机时要不要自动接手**（detach.R 的
+#'    .dsapp_autofix_takeover）。各写一份迟早分叉，而分叉的表现是最难堪的
+#'    那一种：界面上写着"你自己停的、没跑完"，后台却已经把模型叫起来接着跑了。
+#'    用户点了「停止」，AI 又自己跑起来 —— 那不是自动纠错，那是跟用户对着干。
+#'
+#' @return TRUE/FALSE
+dsapp_err_stopped <- function(txt) {
+  txt <- txt %||% ""
+  if (!length(txt)) return(FALSE)
+  isTRUE(any(grepl("已手动停止|已被中止|被中断|对话已删除|应用重启|页面关闭",
+                   as.character(txt))))
+}
+
 #' 这段报错是不是环境问题？
 #'
 #' @param stderr 任务的 stderr（主要判据）

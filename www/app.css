@@ -283,8 +283,33 @@
  * ⚠️⚠️ position: sticky 是这条规则的全部意义：跳转之后用户是滚在**中间**
  *    的，画在别处（比如消息流的最上面一格）等于没画 —— 他根本看不到。
  *    z-index 要压过气泡（气泡有自己的层叠上下文）。
- * ⚠️ 只在"窗口锚在中间"时才有这一格（服务端返回 NULL 时不占位置）。 */
+ * ⚠️ 只在"窗口锚在中间"时才有这一格（服务端返回 NULL 时不占位置）。
+ *
+ * ⚠️⚠️ sticky **只能**写在下面那条 .dsapp-hist-focus 自己身上，**不能**写在
+ *    它的壳（.dsapp-hist-focus-host，也就是 uiOutput 渲染出来的那个
+ *    `<div class="shiny-html-output">`）上。写在壳上是**空转**：shiny 给
+ *    `.shiny-html-output` 设了 `display: contents`（见 codex.css 里同一件事
+ *    的实测记录），`display: contents` 的元素**不生成盒子** —— 没有盒子就没有
+ *    可以粘住的东西，几何恒为 0×0。
+ *
+ *    ★ Test_V17.2 实测（同一段滚动 300px，量横条自己动了多少）：
+ *        现状（sticky 在壳上）            横条动了 -300.0 px   ← 跟内容一起滚走
+ *        sticky 写在横条自己身上           横条动了    0.0 px   ← 粘住了
+ *        壳改 display:block + sticky       横条动了    0.0 px
+ *      第①种在源码里看着完全正确（"position: sticky; top: 0" 白纸黑字），
+ *      而用户一往下拉它就没了 —— 恰好就是「跳转到历史消息后，往下拉，
+ *      没有最新消息的刷新提示」。
+ *    ⚠️ 反过来说：**壳是 display:contents 恰恰是横条能粘住的原因** —— 它不
+ *      生成盒子，所以横条的包含块是再上一层那个滚动容器
+ *      （.dsapp-chat-scroll）的整个内容盒。哪天 shiny 不再用
+ *      display:contents，这条就得跟着重新量一遍（探针里有一条断言专门盯着
+ *      这个前提）。
+ *    ⚠️ 别把 top/left 之外的定位属性写到 .dsapp-hist-focus-host 上：它是
+ *      .dsapp-chat-scroll 的第一个子元素，虽然不生成盒子，但任何 margin/
+ *      padding 都会把整个消息流往下推。 */
 .dsapp-hist-focus {
+  /* ⚠️ 只在"窗口锚在中间"时才有这一格（服务端返回 NULL 时那一格是空的），
+   *    所以这条规则可以常驻，不必跟着内容来回加。 */
   position: sticky;
   top: 0;
   z-index: 3;
@@ -305,6 +330,61 @@
   text-decoration: none;
   white-space: nowrap;
 }
+
+/* ---- 「↓ 有新消息 / 回到最新」（★ Test_V17.2 item 2）---------------------
+ *
+ * 用户原话：「跳转到历史消息后，往下拉，没有最新消息的刷新提示」。
+ *
+ * 顶上那条 hist_focus 只在"服务端把消息窗口挪走了"时出现；用户**滚上去**
+ * 读几屏以前的输出是另一回事（窗口就在最新，只是他不在底部）。这时新消息
+ * 在他下面长出来，屏幕上什么提示都没有 —— 他只会以为"模型没回"。
+ *
+ * ⚠️⚠️ position: sticky; bottom: 0 是这一格的全部意义，而它**必须**直接长在
+ *    .dsapp-chat-scroll 里面（见 R/mod_chat.R 里那一格的说明）：sticky 的
+ *    包含块得是滚动容器本身。静态位置在内容末尾 ⇒ 只要下面还有内容，它就被
+ *    "顶"在可视区下沿；滚到真正的底部时它自然归位（也就藏起来了）。
+ * ⚠️ 外层 pointer-events: none + 内层 auto：这一条横贯整个宽度，压着最后
+ *    几条消息，不这么做的话底下那些链接/复制按钮全点不着（同 .dsapp-progress
+ *    和 .dsapp-busy-badge 的取舍）。
+ * ⚠️ 藏在 display: none 上，不是 visibility/opacity：它一出场就占 ~40px 的
+ *    内容高度，一直在的话等于给每个对话的末尾白加一条空白，而且 scrollHeight
+ *    永远比真实内容多一点，"贴着底"的判据跟着一起漂。 */
+.dsapp-newmsg {
+  display: none;
+  position: sticky;
+  bottom: 0;
+  z-index: 4;                    /* 压过 .dsapp-hist-focus 的 3 */
+  justify-content: center;
+  padding-bottom: .5rem;
+  pointer-events: none;
+}
+.dsapp-newmsg.is-on { display: flex; }
+.dsapp-newmsg-btn {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  padding: .3rem .8rem;
+  font-size: .78rem;
+  color: var(--bs-body-color);
+  background: var(--bs-body-bg);
+  border: 1px solid var(--bs-border-color);
+  border-radius: 999px;          /* 药丸形：和消息气泡区分开，一眼看出是浮标 */
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .18);
+  cursor: pointer;
+}
+.dsapp-newmsg-btn:hover { border-color: var(--bs-primary); }
+/* 「有新消息」时点亮一下：用户不在底部的那段时间里确实长了东西 */
+.dsapp-newmsg.is-new .dsapp-newmsg-btn {
+  color: #fff;
+  background: var(--bs-primary);
+  border-color: var(--bs-primary);
+}
+/* 两句文案都在 DOM 里，按 is-new 这个类挑一条显示 —— 前端只改类、不改文本，
+ * 理由见 R/mod_chat.R 那一格（看护器的 MutationObserver 会自激）。 */
+.dsapp-newmsg-text-new { display: none; }
+.dsapp-newmsg.is-new .dsapp-newmsg-text { display: none; }
+.dsapp-newmsg.is-new .dsapp-newmsg-text-new { display: inline; }
 
 /* 等待首个字时的提示。
  *

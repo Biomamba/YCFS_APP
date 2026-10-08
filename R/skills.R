@@ -514,9 +514,16 @@ dsapp_skill_files_clear <- function(id, con = dsapp_db()) {
 #'   电脑上；不铺进来的话，模型拿到的是一个不存在的路径，只能瞎猜。
 #'
 #' 铺到 `<workdir>/.skills/<技能名>/<原路径>`：
-#'   · `.skills/` 前缀打头是**点目录**，fs::dir_ls / list.files 默认不列它，
-#'     不会污染模型的"工作区里有哪些文件"清单，也不会被产物差集算进去；
+#'   · `.skills/` 前缀打头是**点目录**，fs::dir_ls / list.files 默认不列它；
 #'   · 按技能名分子目录，两条技能都有 `references/` 时不会互相覆盖。
+#'
+#' ⚠️⚠️ **"是点目录所以看不见"只挡得住列目录的写法，挡不住产物差集。**
+#'    2026-10-08 之前这里还写着「也不会被产物差集算进去」—— 那是**假的**：
+#'    `dsapp_ws_snapshot()` 用 `find` 打快照，find 是列点文件的，于是
+#'    `.skills/` 底下每一份文档都进了 `dsapp_ws_artifacts()`，被
+#'    `dsapp_sync_repair()` 当成用户产物发进了文件管理区（实测一次 174 个）。
+#'    真正挡住它的地方是 `dsapp_ws_is_internal()`（R/executor.R）里那份
+#'    **点名**的内部目录表 —— 加目录时两处都要动，别只改这里。
 #'
 #' @return 实际写出（或已存在）的文件数
 dsapp_skill_files_materialize <- function(sid, workdir, con = dsapp_db()) {

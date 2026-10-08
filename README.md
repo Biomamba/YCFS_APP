@@ -6,7 +6,7 @@
 
 不用写代码 · 技能 / MCP / 提示词全都封装好了 · 本地与云端同一套体验
 
-[![版本](https://img.shields.io/badge/版本-Test__V16.7-blue.svg)](#)
+[![版本](https://img.shields.io/badge/版本-Test__V17.2-blue.svg)](#)
 [![R](https://img.shields.io/badge/R-%E2%89%A5%204.1-276DC3.svg)](https://www.r-project.org/)
 [![平台](https://img.shields.io/badge/平台-Web%20%7C%20Windows%20%7C%20macOS-success.svg)](#下载与安装)
 [![许可](https://img.shields.io/badge/许可-非商用自由使用-orange.svg)](#许可与致谢)
@@ -108,29 +108,45 @@ TCGA 数据挖掘在开发中。**想用什么工具，来论坛说一声。**
 ### Windows
 
 1. 到 [Releases](https://github.com/Biomamba/YCFS_APP/releases) 下载
-   `DS_App-Windows-*.zip`
-2. **解压到一个纯英文路径**（比如 `D:\YCFS`），路径里有中文容易出问题
-3. 双击里面的 `run_app.bat`
-4. 首次启动会慢一点（要解压运行时），之后正常
+   **`ds-app.Setup.*.exe`**
+2. 双击安装 —— Windows 会弹「未知发布者」，点「更多信息」→「仍要运行」
+   （没有买代码签名证书，未签名程序都会这样；源码就在这个仓库里，可自行审计）
+3. 装完在开始菜单里找到 **DS_App**，双击就是一个独立窗口
 
-> ⚠️ 杀软可能误报（没有代码签名，这是所有未签名 exe 的通病）。
-> 加白名单即可，源码就在这个仓库里，可自行审计。
+**不用装 R，不用解压，不用碰命令行。**
+
+<details>
+<summary>不想安装？用免安装包（解压双击即用，可放 U 盘带走）</summary>
+
+下载 `DS_App-Windows-*.zip` → **解压到一个纯英文路径**（比如 `D:\YCFS`，
+路径里有中文容易出问题）→ 双击里面的 `run_app.bat`。数据落在解压出来的
+那个文件夹里，**整个文件夹拷走就是搬家**。
+
+</details>
 
 ### macOS
 
 1. 到 [Releases](https://github.com/Biomamba/YCFS_APP/releases) 下载对应架构的包：
-   - Apple 芯片（M 系列）→ `DS_App-macOS-arm64-*.zip`
-   - Intel 芯片 → `DS_App-macOS-x86_64-*.zip`
+   - Apple 芯片（M 系列）→ **`ds-app-*-arm64.dmg`**
+   - Intel 芯片 → **`ds-app-*.dmg`**（名字里不带 `arm64` 的那个）
    - 不确定就点左上角  → 「关于本机」看「芯片」
-2. 解压后双击 `run_app.command`
-3. **首次打开会被 Gatekeeper 拦**（未签名/未公证）：右键点它 → 「打开」→
-   再点一次「打开」。
-   如果提示"已损坏"，在终端里跑一次：
+2. 双击挂载，把里面的 **`DS_App.app`** 拖进「应用程序」
+3. **首次打开会被 Gatekeeper 拦**（未签名/未公证）：右键点图标 → 「打开」→
+   再点一次「打开」。如果提示"已损坏"，在终端里跑一次：
    ```bash
-   xattr -dr com.apple.quarantine /解压后的路径
+   xattr -dr com.apple.quarantine /Applications/DS_App.app
    ```
 
-> 桌面版打包进了一份**独立的 R 运行时**，你本机不需要装 R，也不会动你原有的环境。
+**不用装 R。** 安装包／免安装包里都打包进了一份**独立的 R 运行时**，
+不会动你原有的 R 环境。
+
+<details>
+<summary>不想安装？用免安装包</summary>
+
+下载 `DS_App-macOS-{arm64,x86_64}-*.zip`，解压后双击 `run_app.command`
+（同样第一次要被 Gatekeeper 拦一次，同上）。
+
+</details>
 
 ---
 

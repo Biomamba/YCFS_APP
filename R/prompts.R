@@ -530,25 +530,91 @@ dsapp_self_id_section <- function(vendor, model) {
 #' 这种必然报错的代码，然后反复重试同一段。
 DSAPP_PROMPT_FILE_MAX <- 120L
 
+#' 提示词里最多列几个"别的对话"（★ V17.2 item 3）
+#'
+#' 8 个足够覆盖"接着上次那个继续"的实际场景。列更多不是不行，但那是在用
+#' 上下文买一份大概率用不到的索引 —— 而且真正的老对话产物往往已经被清了。
+#' 超出的**不列，但如实说一句**（见下面），不然模型会以为"我这个账号总共就
+#' 只做过这几件事"，然后在"用户说的那个对话在哪儿"上反复试错。
+DSAPP_PROMPT_CONV_MAX <- 8L
+
 build_file_section <- function(session_id = NULL, cfg = dsapp_config()) {
   # ★ V13 item 6：模型看到的"上传文件"清单必须是**这个对话主人的**管理区。
   #   不重绑的话清单来自 _anon（空的），模型会以为用户什么数据都没传，
   #   转而去工作区里翻，或者干脆自己造一份假数据往下跑。
   if (!is.null(session_id)) cfg <- dsapp_config_sid(session_id, cfg)
-  fmt <- function(rel, sizes) {
-    paste(sprintf("- %s  (%s)", rel,
-                  vapply(sizes, dsapp_fmt_bytes, character(1))),
-          collapse = "\n")
+  # ★ V17.2 item 3：`tags` 是"这一行是哪来的"，长度与 rel 一致（""= 不标）
+  fmt <- function(rel, sizes, tags = NULL) {
+    lines <- sprintf("- %s  (%s)", rel,
+                     vapply(sizes, dsapp_fmt_bytes, character(1)))
+    if (!is.null(tags) && length(tags) == length(rel)) {
+      k <- !is.na(tags) & nzchar(tags)
+      lines[k] <- paste0(lines[k], "  ← ", tags[k])
+    }
+    paste(lines, collapse = "\n")
   }
   # 上限。共享区是所有人共用的，跑上几个月就是几百上千个文件；全列进去
   # 一份提示词能到几万字符，挤掉的是真正的对话内容，而且模型也读不完。
   # 超了如实说一句 —— 不说的话模型会以为自己看到的就是全部，
   # 然后在"文件明明在清单里没有"这件事上反复试错。
-  cap <- function(rel, sizes) {
-    if (length(rel) <= DSAPP_PROMPT_FILE_MAX) return(fmt(rel, sizes))
-    paste0(fmt(utils::head(rel, DSAPP_PROMPT_FILE_MAX), utils::head(sizes, DSAPP_PROMPT_FILE_MAX)),
+  cap <- function(rel, sizes, tags = NULL) {
+    if (length(rel) <= DSAPP_PROMPT_FILE_MAX) return(fmt(rel, sizes, tags))
+    paste0(fmt(utils::head(rel, DSAPP_PROMPT_FILE_MAX),
+               utils::head(sizes, DSAPP_PROMPT_FILE_MAX),
+               if (is.null(tags)) NULL else utils::head(tags, DSAPP_PROMPT_FILE_MAX)),
            sprintf("\n- ……还有 %d 个文件没列出来（用 list.files() 自己看）",
                    length(rel) - DSAPP_PROMPT_FILE_MAX))
+  }
+
+  # ---- ★ V17.2 item 3：跨会话 —— 共享区里的文件是谁产出的 -------------------
+  #
+  # 文件区是**按账号**共用的，所以用户上个对话跑出来的东西，在这个对话里也
+  # 看得见。以前清单上只有一行路径：模型分不清
+  # `单细胞分析-4279/results/expr.rds` 是用户上传的数据、是它自己上一轮的
+  # 产物、还是**另一个对话**的成果 —— 而这三者的正确处理方式完全不同。
+  #
+  # 拿不到（老库、_anon、查询出错）就整段不标：清单还是那份清单，
+  # 只是少了一列注释，绝不能因此让提示词拼不出来。
+  ci <- tryCatch(dsapp_conv_index(dsapp_cfg_uid(cfg), session_id,
+                                  con = dsapp_db(cfg)),
+                 error = function(e) NULL)
+  prov <- function(rel) {
+    out <- rep("", length(rel))
+    if (is.null(ci) || !length(rel)) return(out)
+    # (1) 产物文件夹：`单细胞分析-4279/results/a.csv` 的第一段就是同步落点。
+    #     ⚠️ 只在**真的在文件夹里**时才认（`grepl("/")`）：管理区根上也可能
+    #        有个跟文件夹同名的文件，那种情况下面第 (2) 步会认领。
+    seg  <- sub("/.*$", "", rel)
+    in_d <- grepl("/", rel, fixed = TRUE)
+    cv   <- ci$convs
+    if (nrow(cv)) {
+      m   <- match(seg, cv$dir)
+      hit <- in_d & !is.na(m)
+      if (any(hit)) {
+        ttl <- as.character(cv$title[m[hit]])
+        ttl[is.na(ttl) | !nzchar(ttl)] <- "未命名"
+        out[hit] <- ifelse(cv$is_self[m[hit]],
+                           "本对话发布的产物",
+                           sprintf("对话「%s」的产物", ttl))
+      }
+    }
+    # (2) 手动发布到管理区**根**上的文件不在任何文件夹里，路径里看不出主人，
+    #     只能靠 ws_published 认领（它是"哪个对话发布了哪个落点"的唯一账本）。
+    pb <- ci$pub
+    rest <- !nzchar(out)
+    if (nrow(pb) && any(rest)) {
+      m2   <- match(rel[rest], pb$dest)
+      hit2 <- !is.na(m2)
+      if (any(hit2)) {
+        idx  <- which(rest)[hit2]
+        ttl  <- as.character(pb$title[m2[hit2]])
+        ttl[is.na(ttl) | !nzchar(ttl)] <- "未命名"
+        out[idx] <- ifelse(pb$is_self[m2[hit2]],
+                           "本对话发布的产物",
+                           sprintf("对话「%s」的产物", ttl))
+      }
+    }
+    out
   }
 
   # ---- 共享区 ----
@@ -561,7 +627,7 @@ build_file_section <- function(session_id = NULL, cfg = dsapp_config()) {
   shared <- tryCatch(dsapp_shared_scan(cfg)$files,
                      error = function(e) character(0))
   shared_txt <- if (length(shared)) {
-    cap(shared, file.size(file.path(cfg$files_dir, shared)))
+    cap(shared, file.size(file.path(cfg$files_dir, shared)), prov(shared))
   } else "（空）"
 
   # ---- 本对话工作区 ----
@@ -579,6 +645,71 @@ build_file_section <- function(session_id = NULL, cfg = dsapp_config()) {
     cap(own, file.size(file.path(d, own)))
   } else "（空）"
 
+  # ---- ★ V17.2 item 3：同一账号的其他对话 -----------------------------------
+  #
+  # 「跨会话」这件事，系统**能做**什么、**不能**做什么，都必须在这里说清楚：
+  #   · 能：产物文件按账号共用（上面那一段已经列出来了），加上这张"别的对话"
+  #         的索引，用户说"接着上次那个继续"时，模型至少知道**去哪儿找**。
+  #   · 不能：对话正文是按 session 隔离的（db_messages_get 就是
+  #         `WHERE session_id = ?`），模型**读不到**别的对话里说过什么。
+  #         这一句必须明写 —— 不写的话它会照着标题编出"上次我们做了差异分析"
+  #         这种没发生过的事，而用户从界面上完全看不出来那是编的。
+  #
+  # 一个别的对话都没有时整段不出现（拼出来和这一层不存在时一样），
+  # 免得给第一次用的人塞一段用不上的说明。
+  hist_txt <- ""
+  cv <- if (is.null(ci)) NULL else ci$convs
+  if (!is.null(cv) && nrow(cv)) {
+    # 没说过话的空对话不进清单：它们没有产物、也没有标题可认。
+    other <- cv[!cv$is_self & !is.na(cv$n_msg) & cv$n_msg > 0L, , drop = FALSE]
+    if (nrow(other)) {
+      shown <- utils::head(other, DSAPP_PROMPT_CONV_MAX)
+      # ⚠️ 相对时间走 dsapp_forum_ago（它按 UTC 解析再和现在比）。直接用
+      #    as.POSIXct 会按本机时区解释，东八区就整整差 8 小时 ——
+      #    表现是"刚跑完的对话显示 8 小时前"，不报错，只在非 UTC 机器上出现。
+      ago_of <- function(x) tryCatch(dsapp_forum_ago(x),
+                                     error = function(e) as.character(x %||% ""))
+      lines <- vapply(seq_len(nrow(shown)), function(i) {
+        ttl <- as.character(shown$title[[i]] %||% "")
+        if (is.na(ttl) || !nzchar(ttl)) ttl <- "未命名"
+        dir_i <- as.character(shown$dir[[i]] %||% "")
+        bits <- c(ago_of(shown$updated_at[[i]]),
+                  sprintf("%d 条消息", shown$n_msg[[i]]))
+        if (!is.na(dir_i) && nzchar(dir_i))
+          bits <- c(bits, sprintf("产物在 `%s/`", dir_i))
+        sprintf("- 「%s」  (%s)", ttl, paste(bits, collapse = " · "))
+      }, character(1))
+      more <- if (nrow(other) > nrow(shown))
+        sprintf("\n（还有 %d 个更早的对话没列出来）", nrow(other) - nrow(shown)) else ""
+      # 例子里的路径要用**真实存在**的那个文件夹名。写死一个占位符的话，
+      # 模型会照着把 `<文件夹>` 原样抄进代码里，然后报"没有这个文件"。
+      cand  <- as.character(shown$dir)
+      cand  <- cand[!is.na(cand) & nzchar(cand)]
+      exdir <- if (length(cand)) cand[[1]] else "对话文件夹"
+      hist_txt <- sprintf("\n
+### 同一账号的其他对话（跨会话）
+
+文件区是**按账号**共用的：同一个账号下别的对话同步出去的产物，在这个对话里
+也看得见 —— 就是上面标着「对话「X」的产物」的那些。但**对话正文是隔离的**：
+你看不到别的对话里说过什么，只能看到它的标题和它留下的文件。
+
+你这个账号最近还有这些对话（不含当前这个）：
+
+%s%s
+
+用户说「接着上次那个分析继续」时：
+
+1. 先看那个产物文件夹的全貌（脚本、中间结果、图通常都在里面）：
+   `list.files(\"%s\", recursive = TRUE)`
+2. 要**接着往下算**，先把要用的文件拷进工作区再改 —— 共享区里那些是只读
+   软链，直接往里写会失败：
+   `file.copy(\"%s/results/expr.rds\", \"expr.rds\")`
+3. 需要的是那个对话的**结论**（而不是文件）时，直接问用户 —— 你读不到那边
+   的正文，别凭标题猜它做过什么。", paste(lines, collapse = "\n"), more,
+        exdir, exdir)
+    }
+  }
+
   sprintf("\
 ### 可用数据文件
 
@@ -589,13 +720,17 @@ Permission denied）。要修改就写到**新文件名**里。
 下面列的是**相对共享区根目录的路径**；子目录里的文件要用完整相对路径读，
 比如 `read.csv(\"GSE123/expr.csv\")`，直接写 `read.csv(\"expr.csv\")` 会
 找不到文件。共享区是别人也会改的地方，需要长期引用的数据请先拷到工作区。
+行尾标着「对话「X」的产物」的，是**同一个账号下别的对话**跑出来的东西
+（见下面那一节）；标着「本对话发布的产物」的，是你自己之前跑出来、已经
+同步到文件区的。两种都是只读镜像，要接着改就先 `file.copy()` 到工作区里
+的**新文件名**再动它。
 %s
 
 **本对话已有文件（可读写）** —— 这个对话之前的步骤产出并留在工作区里的。
 可以直接读，也可以覆盖写。如果这些是中间产物，注意别把它当成用户的原始
 输入数据。名字同样是**相对工作目录的路径**。
-%s",
-    shared_txt, own_txt)
+%s%s",
+    shared_txt, own_txt, hist_txt)
 }
 
 #' 本对话专属的包目录

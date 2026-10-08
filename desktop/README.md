@@ -1,26 +1,37 @@
-# Windows 桌面版打包（V13.2 item 1）
+# Windows / macOS 桌面版打包（V13.2 item 1，V16.11 起走 CI）
 
-用户的原话是：
+用户的原话是（V13.2）：
 
 > 现有这个.bat不行，还要windows固定路径下的R存在才能生效，能不能走预制的APP或环境在.bat里？或者shinyelectron能实现的话直接走这条路
 
-问的是同一个问题的两条路，这里两条都做了，**但只有第一条是现在就能发货的**。
+V16.11 item 6 用户又提了一次，这次说得更直白：
 
-| | 免安装包（`build_windows_bundle.sh`） | 单文件 exe（`build_exe.R`） |
+> 你的桌面版并不是真正的免安装版，还是需要运行脚本，我需要的是比如windows下就打包成.exe，MacOS就打包成对应的.app这样
+
+⇒ **两条路现在都是通的，而且 exe / .app 是主路**，但只有 zip 那条能在这台
+Linux 打包机上**本地**打出来。exe / .app 走 GitHub Actions（`.github/workflows/desktop.yml`），
+跑在**真的 Windows** 和**真的 macOS** runner 上，产物挂在 Release 里。
+
+| | 免安装包（`build_*_bundle.sh`） | 安装包 `.exe` / `.app`（`build_exe.R`） |
 |---|---|---|
-| 用户拿到什么 | 一个文件夹，解压后双击 `run_app.bat` | 一个 `.exe`，双击就是独立窗口 |
+| 用户拿到什么 | 一个文件夹，解压后双击 `run_app.bat` / `run_app.command` | `.exe`：双击安装，开始菜单里多一个 DS_App<br>`.app`：拖进「应用程序」，双击就开 |
 | 用户要不要装 R | 不要（便携 R 已在包内） | 不要（同样在包内） |
-| 现在能不能出 | **能**，在这台 Linux 上就能组装 | **不能**，见下面「为什么」 |
-| 体积 | ~100 MB（压缩后） | 200 MB 起（多了 Electron 内核） |
+| 在哪打 | **这台 Linux 上就能组装** | **只能在 CI 上打**（要真 Windows / 真 macOS） |
+| 本机命令 | `bash desktop/build_windows_bundle.sh` | 本机**打不了**，见第二节 |
+| 体积 | ~150 MB（压缩后） | 240~280 MB |
 | 杀毒误报 | 基本没有 | 没有签名证书时**大概率有** |
 | 出错时用户看得见什么 | 黑窗口里的全部日志 | 什么都没有，要去 `%APPDATA%` 捞日志 |
 
-**结论：先发免安装包。** exe 那条路等有一台 Windows 机器（或者装上 wine）再走，
-套件已经备好了。
+**结论：发给用户的是安装包（`.exe` / `.dmg` 里的 `.app`）。** 免安装 zip 留作
+"不能装软件 / 要放 U 盘带走"的备选，两份都挂在同一个 Release 上。
+
+⚠️ **这两个产物我只验到"结构对"**（见第六节那张实测表：`.exe` 头是 `MZ`+`PE\0\0`、
+`.dmg` 尾是 UDIF 的 `koly`），**没有在真的 Windows / Mac 上双击过** ——
+这台机器两个都没有。真机验收清单在第四节，那几条请务必走一遍。
 
 ---
 
-## 一、免安装包（现在就能用）
+## 一、免安装包（本机就能打）
 
 ```bash
 bash desktop/build_windows_bundle.sh [输出目录]     # 默认 ~/dsapp_build
@@ -108,13 +119,37 @@ zip 的权限位/符号链接是"打的时候对、解的时候丢"的经典事�
 
 ---
 
-## 二、单文件 exe（套件已备好，但在这台机器上跑不了）
+## 二、安装包 `.exe` / `.app`（走 CI，本机打不了）
 
 ```bash
-Rscript desktop/build_exe.R [输出目录]
+Rscript desktop/build_exe.R --plat=win --arch=x64 [输出目录]   # 本机会当场停下
+Rscript desktop/build_exe.R --plat=mac --arch=arm64 [输出目录]
 ```
 
-### 为什么在这台机器上不行
+### 怎么出这两个包：推上去，让 GitHub 打
+
+`.github/workflows/desktop.yml` 有四个打包 job + 一个发 Release 的 job：
+
+| job | runner | 产出 |
+|---|---|---|
+| `win-bundle` | ubuntu | `DS_App-Windows-<版本>.zip`（免安装） |
+| `win-exe` | **windows-latest** | `ds-app.Setup.<版本>.exe` ← NSIS 安装包 |
+| `mac-bundle` | macos-14 / macos-15-intel | 两个 `DS_App-macOS-*.zip`（免安装） |
+| `mac-app` | 同上 | `ds-app-<版本>.dmg`（里面是 `DS_App.app`） |
+
+两条触发路径：
+
+1. **打标签**：`git push origin v17.2` （`on.push.tags: v*`）⇒ 打完之后**一定**发 Release。
+2. **手动**：Actions → desktop → Run workflow → 填 `release_tag`（比如 `Test_V17.2`）。
+   留空只上传 artifact，**不建 Release**。
+
+⚠️ **artifact 要登录才能下**（公开仓库也一样），Release 附件才是公开的 ——
+发给用户的链接只能是 Release。
+
+⚠️ **CI 是从 GitHub 上那份源码打的**，不是从工作目录。本机改完不推上去，
+打出来的还是旧版本。
+
+### 为什么在这台仓库机器上跑不了
 
 都是实测的，不是推测的：
 
@@ -127,25 +162,19 @@ Rscript desktop/build_exe.R [输出目录]
 2. **交叉编译 Windows 要 wine。** electron-builder 往 exe 里塞图标和版本信息
    用的是 `rcedit`（一个 Windows 程序）。这台机器没有 wine，conda-forge 的
    linux-64 也没有（只有个同名的 `untwine`，不是一回事）。
-   **这是现在唯一的拦路虎。**
-3. **连"先在本地打个 Linux 版验证流程"都做不到。** `bundled` 策略要下便携版
+3. **mac 目标在非 macOS 上直接拒绝**：dmg 要 `hdiutil`、签名要 `codesign`，
+   都是系统自带、没有替代实现。
+4. **连"先在本地打个 Linux 版验证流程"都做不到。** `bundled` 策略要下便携版
    R，而 shinyelectron 的源码里 Linux 那条路是直接 abort 的
    （`Portable R for Linux is not yet supported`）。
 
-也就是说：**只要有 wine（`sudo apt install wine64`）或者换一台 Windows 机器，
-这条路当场就通。** `build_exe.R` 开头会自己把这几条查一遍，**当场停下来说明白**，
-而不是跑到一半甩一句 electron-builder 的英文栈。加 `--force` 可以硬闯。
+`build_exe.R` 开头会把这几条查一遍，**当场停下来说明白**，而不是跑到一半甩一句
+electron-builder 的英文栈。加 `--force` 可以硬闯（本机硬闯的结果见下面第四节
+那道"假绿"的账）。
 
-### 换到能打的机器上之后
-
-```bash
-# Windows 机器（推荐，原生打包不用 wine）
-winget install OpenJS.NodeJS          # 或者去 nodejs.org 下 22+
-install.packages("shinyelectron")
-Rscript desktop/build_exe.R
-```
-
-Linux 上要交叉编译的话先 `sudo apt install wine64`，再把 Node 升到 22。
+**⇒ 所以这台机器上正确的做法是 `git push` + 等 CI**，不是想办法在本机跑通。
+想在本机跑的话，得有 wine（`sudo apt install wine64`）+ Node 22，而且 mac 那份
+**永远**得在 Mac 上打。
 
 ### 关键设置（改错了会得到一个"能打开但一用就废"的包）
 
@@ -185,10 +214,32 @@ PY
 
 ---
 
-## 四、发出去之前，在真 Windows 上过一遍这张表
+## 四、发出去之前，在真机上过一遍这两张表
 
-> ⚠️ 我**没有 Windows 机器**。这两个产物是"组装正确、自检全过"，不是"我跑过"。
-> 下面每一条都是"这条不过的话用户当场就废了"，请一条条走。
+> ⚠️ 我**没有 Windows 机器、也没有 Mac**。这四个产物是"组装正确、结构验过"，
+> **不是"我跑过"**。下面每一条都是"这条不过的话用户当场就废了"，请一条条走。
+
+### 安装包 `.exe`（Windows，**这是现在发给用户的那个**）
+
+- [ ] 双击安装，**能装完**（Windows 会弹「未知发布者」→ 更多信息 → 仍要运行）
+- [ ] 装完开始菜单 / 桌面能找到 DS_App，双击**出来的是独立窗口**，不是浏览器
+- [ ] 窗口标题、界面中文没有乱码
+- [ ] 注册一个账号 → 记下恢复码 → **关掉窗口 → 重开** → 能用同一个账号登录
+- [ ] 新建对话，让模型跑一段 R（比如 `print(1+1)`），**能出结果**（自带运行时接上了）
+- [ ] 「文件管理」里上传一个**中文名**的 csv，能预览
+- [ ] 在一台**没装过 R** 的干净 Windows 上再走一遍上面全部
+- [ ] 卸载：控制面板里能卸干净（卸载后 `%APPDATA%\DS_App` 里的数据是你自己的，别删错）
+- [ ] 杀毒软件不拦（没签名时这条最容易出问题）
+
+### 安装包 `.dmg`（macOS，**这是现在发给用户的那个**）
+
+- [ ] 双击 `.dmg` 能挂载，里面是一个 `DS_App.app`
+- [ ] 拖进「应用程序」，双击打开 —— 会被 Gatekeeper 拦，**右键 →「打开」→ 再点「打开」**能过
+- [ ] 窗口起得来、界面中文没有乱码
+- [ ] 注册 → 关掉 → 重开，账号还在
+- [ ] 跑一个 R 任务能出结果（顺带验 `dsapp_utf8_locale()`：macOS 没有 `C.UTF-8`）
+- [ ] 「配额与资源」页面能显示磁盘占用（验 `du` —— BSD `du` 没有 `-b`）
+- [ ] Intel 机器上跑那个没有 `arm64` 后缀的 `.dmg`
 
 ### 免安装包
 
@@ -207,15 +258,6 @@ PY
 - [ ] 把整个文件夹放进 `C:\Program Files\` 下面，双击 —— 应该提示「应用目录写不进去」
       并把数据改放到 `%LOCALAPPDATA%\DS_App\data`，**而不是**报"数据库坏了"
 - [ ] 从只读的 U 盘/网盘直接双击，同上
-
-### 单文件 exe（等有了再走）
-
-- [ ] 双击能起来，**不是一闪而过**
-- [ ] 窗口标题、界面中文没有乱码
-- [ ] 注册 → 关掉 → 重开，账号还在
-- [ ] 跑一个 R 任务能出结果
-- [ ] 杀毒软件不拦（没签名时这条最容易出问题）
-- [ ] 在一台**没装过 R** 的干净 Windows 上再走一遍上面全部
 
 ---
 
@@ -246,3 +288,57 @@ PY
   打包机的路径上。
 - **`zip` 的时间戳。** `zip -qr` 保留源文件时间，便携 R 里那些 2024 年的文件
   会让包看起来很旧，这是正常的。
+
+---
+
+## 六、这两个安装包验到什么程度（别再问"是不是真的"）
+
+### 判据：不看名字、不看大小，看产物**自己带的**字节
+
+后缀是打包脚本起的名字，谁都能起。真正的证据在文件头尾：
+
+| 产物 | 判据 | 为什么顶不了包 |
+|---|---|---|
+| `.exe` | 头两字节 `MZ`，且 `0x3C` 处的 e_lfanew 指过去是 `PE\0\0` | 这是 Windows 装载器认的东西，不是文件名 |
+| `.dmg` | **最后 512 字节**的头 4 字节是 `koly` | UDIF 磁盘映像的 trailer，`hdiutil` 认的就是它 |
+| `.zip` | 头两字节 `PK` | —— |
+
+**不用下载 1 GB**：这些都在文件的头尾，用 HTTP Range 取几 KB 就够。仓库外面
+那份脚本是 `/tmp/gh_probe_assets.py`（没进仓库，要重跑就照上表自己写十几行）。
+
+2026-10-08 在 Release `Test_V16.10` 上实测（**7 个附件全过**）：
+
+```
+ds-app.Setup.16.10.0.exe     244.1 MB  ✓  e_lfanew=0xd8 sig=b'PE\x00\x00'
+ds-app-16.10.0.dmg           274.4 MB  ✓  尾部 4 字节 b'koly'
+ds-app-16.10.0-arm64.dmg     262.1 MB  ✓  尾部 4 字节 b'koly'
+DS_App-Windows-Test_V16.10.zip   169.1 MB  ✓  b'PK'
+DS_App-macOS-arm64-Test_V16.10.zip 153.7 MB  ✓  b'PK'
+DS_App-macOS-x86_64-Test_V16.10.zip 158.7 MB  ✓  b'PK'
+```
+
+核对哈希也不要下载：Release 的 asset 对象自带 `digest`（`sha256:…`），
+和 `SHA256SUMS.txt` 逐条对、再对一次**双向集合相等**就行。
+
+### 这条闸门被"假绿"骗过八次，别再信 job 的颜色
+
+2026-10-07 之前，workflow 六条 job **连绿八轮，而一个 `.exe`/`.dmg` 都没打出来**。
+两层原因叠在一起：
+
+1. `shinyelectron` 把 `DSAPP_VERSION`（`Test_V16.10`）原样塞进 package.json 的
+   `version`，electron-builder 抛 `⨯ Invalid version` **当场死**；而它的
+   `run_command_safe()` 是 `error_on_status = FALSE`、`build_for_platforms()`
+   不看返回码、`validate_build_output()` 发现没有 `dist/` 只打一句 warning，
+   紧接着**无条件**打 `✔ Successfully built Electron app`。**失败被吞成成功。**
+2. 我们这边唯一的防线是"在 `out/` 下按后缀找产物"，而它被 `node_modules` 里的
+   `signtool.exe` / `7z-arm64.exe` 顶了包 ⇒ 找到了"exe"，于是 job 是绿的。
+
+⇒ 现在两道都收紧了：`upload-artifact` 收窄到 `out/exe_out/*/dist/` 并且
+`if-no-files-found: error`；Release 那步的摊平改成 `-mindepth 2 -maxdepth 2`
+（download-artifact 的布局恒为 `dist/<artifact 名>/<文件>`）**再叠一层名字白名单**，
+最后**数一遍是不是 6 个**。
+
+⚠️ 但**别把"改了一层"当成"这类没了"**：同一天，上传那层已经收窄了，摊平那层
+还是全局递归 `find dist -name '*.zip'`，于是往公开 Release 上挂了一个
+**480 字节的 `example.zip`** —— R 的 `zip` 包自带的测试夹具，藏在 `.app` 里的
+便携 R 库树里。**按后缀全局找，必然把依赖当成产品。**

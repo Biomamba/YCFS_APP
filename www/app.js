@@ -1580,9 +1580,37 @@ $(document).on("click", ".dsapp-auth .dsapp-btn-primary", function () {
     if (!el || el.__dsappKeeper) return el && el.__dsappKeeper;
     var pinned = true, top = el.scrollTop;
 
+    /* ★★ Test_V17.2 item 2：滚动容器末尾那一格「↓ 有新消息 / 回到最新」。
+     *
+     *   用户原话：「跳转到历史消息后，往下拉，没有最新消息的刷新提示」。
+     *
+     *   grown = "用户不在底部的这段时间里，下面确实长出过东西"。它和 pinned
+     *   一起决定那一格长什么样：不在底部就是「回到最新」，期间长过新东西才是
+     *   「有新消息 · 回到最新」。
+     *
+     *   ⚠️⚠️ 这里**只改 class，一个字符的文本都不写**。看护器的
+     *      MutationObserver 盯着 childList + subtree，而它自己就跑在回调里 ——
+     *      回调里写 textContent 等于给自己塞一次变更，下一拍再进来、再写一次，
+     *      无限循环（浏览器不会报错，只是 CPU 一直转，而且**每一拍都在重排**）。
+     *      两句文案是**同时**画在 DOM 里的（见 R/mod_chat.R），由 CSS 按
+     *      is-new 这个类挑一条显示。class 是 attribute 变更，不在观察范围内。 */
+    var pill = el.querySelector(".dsapp-newmsg"), grown = false;
+
+    function syncPill() {
+      if (!pill) return;
+      if (pinned) {
+        pill.classList.remove("is-on", "is-new");
+        grown = false;
+        return;
+      }
+      pill.classList.add("is-on");
+      pill.classList.toggle("is-new", grown);
+    }
+
     el.addEventListener("scroll", function () {
       top = el.scrollTop;
       pinned = el.scrollHeight - el.scrollTop - el.clientHeight < PIN;
+      syncPill();
     }, { passive: true });
 
     var api = {
@@ -1591,12 +1619,28 @@ $(document).on("click", ".dsapp-auth .dsapp-btn-primary", function () {
         pinned = true;
         el.scrollTop = el.scrollHeight;
         top = el.scrollTop;
+        syncPill();
       },
       /* 新内容来了：只在用户本来就贴着底的时候跟 */
       follow: function () {
         if (pinned) api.force();
-      }
+      },
+      /* 给探针用的：现在贴不贴着底。tests/ui_v172/probe_newmsg.py 拿它当
+       * 判据 —— 只看那一格在不在，分不出"该出现却没出现"和"本来就不该出现"。 */
+      isPinned: function () { return pinned; }
     };
+
+    if (pill) {
+      pill.addEventListener("click", function (e) {
+        e.preventDefault();
+        /* ⚠️ 顺序不能反：**先**贴底（pinned 立刻变真），**再**让服务端把消息
+         *    窗口挪回最新。反过来的话，服务端换完 DOM，看护器按"用户还在中间"
+         *    把位置又还原回去 —— 点了没反应。 */
+        api.force();
+        var b = document.querySelector(".dsapp-hist-focus-btn");
+        if (b) b.click();     /* 窗口锚在中间时，光滚到底也看不到最新的消息 */
+      });
+    }
 
     new MutationObserver(function () {
       if (pinned) {
@@ -1604,6 +1648,12 @@ $(document).on("click", ".dsapp-auth .dsapp-btn-primary", function () {
       } else {
         var want = Math.min(top, Math.max(0, el.scrollHeight - el.clientHeight));
         if (el.scrollTop !== want) el.scrollTop = want;
+        /* 用户不在底部、而 DOM 动了 = 下面长出东西了。
+         * ⚠️ 判据里那个 `< PIN` 不是多余的：这一格自己一出场就占 ~40px 内容
+         *    高度，如果它正好压在阈值线上，"出现 → 高度变了 → 又判定成长了"
+         *    会来回翻。用同一把 PIN 尺子量，两边不会打架。 */
+        if (el.scrollHeight - el.scrollTop - el.clientHeight >= PIN) grown = true;
+        syncPill();
       }
     }).observe(el, { childList: true, subtree: true });
 

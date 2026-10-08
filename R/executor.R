@@ -999,22 +999,39 @@ dsapp_artifact_is_human <- function(files) {
 
 #' 这个工作区路径是"我们自己塞进去的"，不是产物
 #'
-#' 工作区里有三类不该出现在**任何**面向用户/模型的清单里的东西：
+#' 工作区里有四类不该出现在**任何**面向用户/模型的清单里的东西：
 #'   * `.dsapp_*` —— 脚本、stdout/stderr 这些执行脚手架
 #'   * `.Rlib` / `.venv` / `.pylib` —— 对话专属的包目录（envs.R 建的），
 #'     里面是几千个包文件
 #'   * `.dsapp_extract_*` —— 解压用的临时目录
+#'   * `.skills` —— 技能配套文件（skills.R 的
+#'     `dsapp_skill_files_materialize()` 铺进来的模板 / 参考文档）
 #'
 #' ⚠️ 必须是**一段一段**地判（路径里任何一段命中就算内部），不能只判开头：
 #'    递归快照给出的是 `results/plot.png` 这种相对路径，而内部目录同样
 #'    可能出现在子层……虽然我们只在顶层建它们，但判开头这件事一旦有人
 #'    改成"模型可以把包目录建在子目录里"就会静默失效，而失效的表现是
 #'    "产物列表里冒出几千个 .Rlib/xxx"，不是报错。
+#'
+#' ⚠️⚠️ **`.skills` 是 2026-10-08 补进来的，别删。** 它原来不在这个表里，
+#'    而挡着它的是 skills.R 注释里那句「`.skills/` 是点目录，`fs::dir_ls` /
+#'    `list.files` 默认不列它」—— 那句话**只对列目录的写法成立**，而
+#'    `dsapp_ws_snapshot()` 用的是 **`find`**（见下面 `dirs = TRUE` 那段，
+#'    为了不跟软链钻出去才换的），`find` 是**列点文件**的。于是这条路径
+#'    一路通到 `dsapp_ws_artifacts()`：
+#'      * 平时不会发作 —— `dsapp_sync_artifacts()` 传的是**本次任务的产物**
+#'        （taskrun.R），不含技能文件；`dsapp_sync_backfill()` 又只补
+#'        **没有 sync_dirs 行**的对话，用过技能的对话早就有了。
+#'      * 一发作就是**全量**：`dsapp_sync_repair()` 的差集是
+#'        「盘上快照 − 已发布」，一把把 `.skills/` 底下所有文档捞进用户的
+#'        文件管理区（2026-10-08 实测：一次 repair 就往 u1 发了 174 个）。
+#'    ⇒ 内部目录的判据**不能依赖"这个写法恰好不列它"**，要点名。
 dsapp_ws_is_internal <- function(rel) {
   if (!length(rel)) return(logical(0))
   vapply(rel, function(p) {
     seg <- strsplit(p, "/", fixed = TRUE)[[1]]
-    any(seg %in% c(".Rlib", ".venv", ".pylib") | startsWith(seg, ".dsapp_"))
+    any(seg %in% c(".Rlib", ".venv", ".pylib", ".skills") |
+          startsWith(seg, ".dsapp_"))
   }, logical(1), USE.NAMES = FALSE)
 }
 
