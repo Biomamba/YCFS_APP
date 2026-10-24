@@ -1,0 +1,186 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="820" viewBox="0 0 1600 820" role="img" aria-labelledby="rwTitle rwDesc" font-family="Noto Sans SC, Source Han Sans SC, Microsoft YaHei, PingFang SC, Hiragino Sans GB, sans-serif">
+  <title id="rwTitle">框选返修示意</title>
+  <desc id="rwDesc">在图表上框选一块区域并写下意见，选区与意见一起回到对话，AI 只改这一处并生成新版本，旧版本保留。</desc>
+  <defs>
+    <linearGradient id="rwBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0d1117"/>
+      <stop offset="0.6" stop-color="#0d1117"/>
+      <stop offset="1" stop-color="#0b1320"/>
+    </linearGradient>
+    <radialGradient id="rwGlowA" cx="0.1" cy="0.1" r="0.5">
+      <stop offset="0" stop-color="#f59e0b" stop-opacity="0.1"/>
+      <stop offset="1" stop-color="#f59e0b" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="rwGlowB" cx="0.95" cy="0.8" r="0.5">
+      <stop offset="0" stop-color="#2dd4bf" stop-opacity="0.13"/>
+      <stop offset="1" stop-color="#2dd4bf" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="rwDots" width="30" height="30" patternUnits="userSpaceOnUse">
+      <circle cx="1.4" cy="1.4" r="1.1" fill="#30363d" opacity="0.5"/>
+    </pattern>
+    <marker id="rwArrowAmber" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+      <path d="M0 0 L9 4.5 L0 9 z" fill="#f59e0b"/>
+    </marker>
+    <marker id="rwArrowTeal" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+      <path d="M0 0 L9 4.5 L0 9 z" fill="#2dd4bf"/>
+    </marker>
+    <style>
+      .rw-title { fill: #e6edf3; font-size: 40px; font-weight: 700; letter-spacing: 0.5px; }
+      .rw-sub { fill: #8b949e; font-size: 16px; }
+      .rw-badge { fill: #f59e0b; font-size: 13px; font-weight: 600; letter-spacing: 2px; }
+      .rw-chip { font-size: 11.5px; font-weight: 600; letter-spacing: 0.5px; }
+      .rw-card-title { fill: #e6edf3; font-size: 18px; font-weight: 600; }
+      .rw-axis { fill: #8b949e; font-size: 11px; letter-spacing: 0.5px; }
+      .rw-note { fill: #8b949e; font-size: 11.5px; }
+      .rw-bubble { fill: #e6edf3; font-size: 14px; }
+      .rw-bubble-tag { fill: #2dd4bf; font-size: 11px; font-weight: 600; letter-spacing: 1px; }
+      .rw-foot { fill: #8b949e; font-size: 14px; letter-spacing: 0.5px; }
+      .rw-ico { fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="820" fill="url(#rwBg)"/>
+  <rect width="1600" height="820" fill="url(#rwDots)"/>
+  <rect width="1600" height="820" fill="url(#rwGlowA)"/>
+  <rect width="1600" height="820" fill="url(#rwGlowB)"/>
+
+  <g>
+    <rect x="60" y="52" width="218" height="28" rx="14" fill="#f59e0b" fill-opacity="0.09" stroke="#f59e0b" stroke-opacity="0.35"/>
+    <text x="169" y="71" text-anchor="middle" class="rw-badge">框选返修 · 指哪改哪</text>
+    <text x="60" y="126" class="rw-title">不用重跑全流程，圈一下就能改</text>
+    <text x="60" y="160" class="rw-sub">在图上框选区域、写下意见，AI 带着选区回到对话返修；旧版本保留，可对比、可回退</text>
+  </g>
+
+  <!-- 左图：当前版本 -->
+  <g>
+    <rect x="60" y="206" width="600" height="470" rx="18" fill="#161b22" stroke="#30363d"/>
+    <rect x="84" y="228" width="126" height="26" rx="13" fill="#f59e0b" fill-opacity="0.1" stroke="#f59e0b" stroke-opacity="0.3"/>
+    <text x="147" y="245" text-anchor="middle" class="rw-chip" fill="#f59e0b">当前版本 v1</text>
+    <text x="636" y="245" text-anchor="end" class="rw-note">原始图</text>
+    <text x="84" y="300" class="rw-card-title">差异表达 · 火山图</text>
+
+    <g stroke="#21262d" stroke-width="1">
+      <path d="M100 400 H600 M100 450 H600 M100 550 H600 M100 600 H600"/>
+      <path d="M200 330 V620 M400 330 V620 M500 330 V620"/>
+    </g>
+    <path d="M100 330 V620 H600" fill="none" stroke="#484f58" stroke-width="1.4"/>
+    <path d="M340 330 V620" stroke="#30363d" stroke-width="1" stroke-dasharray="4 5"/>
+    <path d="M100 500 H600" stroke="#30363d" stroke-width="1" stroke-dasharray="4 5"/>
+    <text x="596" y="646" text-anchor="end" class="rw-axis">log2FC</text>
+    <text x="84" y="475" text-anchor="middle" class="rw-axis" transform="rotate(-90 84 475)">-log10 padj</text>
+
+    <!-- 散点 -->
+    <g fill="#30363d">
+      <circle cx="128" cy="566" r="3.2"/><circle cx="148" cy="538" r="3"/><circle cx="166" cy="578" r="3.4"/>
+      <circle cx="184" cy="520" r="2.8"/><circle cx="204" cy="556" r="3.1"/><circle cx="222" cy="534" r="2.6"/>
+      <circle cx="242" cy="582" r="3.2"/><circle cx="260" cy="546" r="3"/><circle cx="278" cy="562" r="2.7"/>
+      <circle cx="296" cy="526" r="3.3"/><circle cx="314" cy="572" r="2.9"/><circle cx="330" cy="542" r="3.2"/>
+      <circle cx="356" cy="566" r="2.8"/><circle cx="374" cy="530" r="3.4"/><circle cx="392" cy="578" r="3"/>
+      <circle cx="430" cy="562" r="2.7"/><circle cx="448" cy="528" r="3.1"/><circle cx="470" cy="572" r="3.3"/>
+      <circle cx="488" cy="538" r="2.8"/><circle cx="506" cy="558" r="3"/><circle cx="524" cy="582" r="3.2"/>
+      <circle cx="542" cy="544" r="2.6"/><circle cx="562" cy="568" r="3.1"/><circle cx="580" cy="524" r="3"/>
+      <circle cx="190" cy="502" r="2.6"/><circle cx="252" cy="507" r="2.4"/><circle cx="306" cy="496" r="2.8"/>
+      <circle cx="380" cy="506" r="2.5"/><circle cx="458" cy="497" r="2.7"/><circle cx="532" cy="508" r="2.4"/>
+      <circle cx="150" cy="494" r="2.3"/><circle cx="570" cy="492" r="2.5"/>
+    </g>
+    <g fill="#2dd4bf" opacity="0.9">
+      <circle cx="352" cy="420" r="3.6"/><circle cx="386" cy="392" r="3.3"/><circle cx="470" cy="430" r="3.4"/>
+      <circle cx="514" cy="454" r="3.2"/><circle cx="558" cy="418" r="3.5"/><circle cx="598" cy="446" r="3.3"/>
+      <circle cx="300" cy="432" r="3.2"/><circle cx="244" cy="458" r="3.4"/>
+    </g>
+    <!-- 高亮簇（框选对象） -->
+    <g fill="#f59e0b">
+      <circle cx="430" cy="390" r="4"/><circle cx="448" cy="372" r="3.8"/><circle cx="466" cy="401" r="4.1"/>
+      <circle cx="484" cy="352" r="3.9"/><circle cx="502" cy="379" r="4"/><circle cx="520" cy="364" r="3.8"/>
+      <circle cx="538" cy="398" r="4.2"/><circle cx="556" cy="358" r="3.7"/><circle cx="476" cy="412" r="3.6"/>
+    </g>
+
+    <!-- 选区 -->
+    <rect x="410" y="338" width="162" height="90" rx="4" fill="#f59e0b" fill-opacity="0.07" stroke="#f59e0b" stroke-width="1.8" stroke-dasharray="7 5"/>
+    <g fill="#0d1117" stroke="#f59e0b" stroke-width="1.6">
+      <rect x="406" y="334" width="8" height="8"/><rect x="568" y="334" width="8" height="8"/>
+      <rect x="406" y="424" width="8" height="8"/><rect x="568" y="424" width="8" height="8"/>
+    </g>
+    <rect x="410" y="308" width="108" height="24" rx="12" fill="#f59e0b" fill-opacity="0.14" stroke="#f59e0b" stroke-opacity="0.45"/>
+    <text x="464" y="324" text-anchor="middle" class="rw-chip" fill="#f59e0b">圈选这一簇</text>
+
+    <text x="84" y="658" class="rw-note">图上的高亮簇 = 你框选的范围</text>
+  </g>
+
+  <!-- 选区 → 意见 -->
+  <path d="M578 386 C630 386 668 392 706 392" fill="none" stroke="#f59e0b" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#rwArrowAmber)"/>
+
+  <!-- 意见气泡 -->
+  <g>
+    <path d="M720 366 l-20 12 20 12 z" fill="#161b22" stroke="#30363d" stroke-width="1"/>
+    <rect x="718" y="300" width="280" height="158" rx="16" fill="#161b22" stroke="#30363d"/>
+    <circle cx="742" cy="326" r="12" fill="#2dd4bf" fill-opacity="0.12" stroke="#2dd4bf" stroke-opacity="0.35"/>
+    <text x="742" y="331" text-anchor="middle" fill="#2dd4bf" font-size="11" font-weight="700">你</text>
+    <text x="762" y="331" class="rw-bubble-tag">你的意见</text>
+    <text x="742" y="362" class="rw-bubble">把这一簇的标签减少到</text>
+    <text x="742" y="386" class="rw-bubble">top 20，颜色改成青绿，</text>
+    <text x="742" y="410" class="rw-bubble">其他点保持不动。</text>
+    <text x="742" y="438" class="rw-note">选区坐标随消息一起发送</text>
+  </g>
+
+  <!-- 意见 → 返修 -->
+  <path d="M1000 382 H1076" fill="none" stroke="#2dd4bf" stroke-width="2.4" marker-end="url(#rwArrowTeal)"/>
+  <text x="1038" y="366" text-anchor="middle" fill="#2dd4bf" font-size="12" font-weight="600">AI 返修</text>
+
+  <!-- 右图：新版本 -->
+  <g>
+    <rect x="1090" y="206" width="450" height="470" rx="18" fill="#161b22" stroke="#3fb950" stroke-opacity="0.32"/>
+    <rect x="1114" y="228" width="168" height="26" rx="13" fill="#3fb950" fill-opacity="0.1" stroke="#3fb950" stroke-opacity="0.35"/>
+    <text x="1198" y="245" text-anchor="middle" class="rw-chip" fill="#3fb950">新版本 v2 · 已生成</text>
+    <circle cx="1512" cy="241" r="13" fill="#3fb950" fill-opacity="0.14" stroke="#3fb950" stroke-opacity="0.45"/>
+    <path d="M1506 241 l4 4 8 -9" class="rw-ico" stroke="#3fb950" stroke-width="2"/>
+    <text x="1114" y="300" class="rw-card-title">差异表达 · 火山图</text>
+
+    <g stroke="#21262d" stroke-width="1">
+      <path d="M1120 400 H1500 M1120 450 H1500 M1120 550 H1500 M1120 600 H1500"/>
+      <path d="M1186 330 V620 M1326 330 V620 M1413 330 V620"/>
+    </g>
+    <path d="M1120 330 V620 H1500" fill="none" stroke="#484f58" stroke-width="1.4"/>
+    <path d="M1300 330 V620" stroke="#30363d" stroke-width="1" stroke-dasharray="4 5"/>
+    <path d="M1120 500 H1500" stroke="#30363d" stroke-width="1" stroke-dasharray="4 5"/>
+    <text x="1496" y="646" text-anchor="end" class="rw-axis">log2FC</text>
+    <text x="1104" y="475" text-anchor="middle" class="rw-axis" transform="rotate(-90 1104 475)">-log10 padj</text>
+
+    <g fill="#30363d">
+      <circle cx="1142" cy="566" r="3.2"/><circle cx="1158" cy="538" r="3"/><circle cx="1172" cy="578" r="3.4"/>
+      <circle cx="1188" cy="520" r="2.8"/><circle cx="1204" cy="556" r="3.1"/><circle cx="1220" cy="534" r="2.6"/>
+      <circle cx="1236" cy="582" r="3.2"/><circle cx="1252" cy="546" r="3"/><circle cx="1268" cy="562" r="2.7"/>
+      <circle cx="1284" cy="526" r="3.3"/><circle cx="1298" cy="572" r="2.9"/><circle cx="1312" cy="542" r="3.2"/>
+      <circle cx="1334" cy="566" r="2.8"/><circle cx="1348" cy="530" r="3.4"/><circle cx="1362" cy="578" r="3"/>
+      <circle cx="1392" cy="562" r="2.7"/><circle cx="1406" cy="528" r="3.1"/><circle cx="1424" cy="572" r="3.3"/>
+      <circle cx="1438" cy="538" r="2.8"/><circle cx="1452" cy="558" r="3"/><circle cx="1466" cy="582" r="3.2"/>
+      <circle cx="1480" cy="544" r="2.6"/><circle cx="1492" cy="568" r="3.1"/>
+      <circle cx="1198" cy="502" r="2.6"/><circle cx="1248" cy="507" r="2.4"/><circle cx="1292" cy="496" r="2.8"/>
+      <circle cx="1352" cy="506" r="2.5"/><circle cx="1416" cy="497" r="2.7"/><circle cx="1470" cy="508" r="2.4"/>
+    </g>
+    <g fill="#2dd4bf">
+      <circle cx="1320" cy="420" r="3.6"/><circle cx="1350" cy="392" r="3.3"/><circle cx="1400" cy="430" r="3.4"/>
+      <circle cx="1436" cy="454" r="3.2"/><circle cx="1470" cy="418" r="3.5"/><circle cx="1490" cy="446" r="3.3"/>
+      <circle cx="1278" cy="432" r="3.2"/><circle cx="1238" cy="458" r="3.4"/>
+      <!-- 返修后的高亮簇：同位置，已换成青绿 -->
+      <circle cx="1348" cy="390" r="4"/><circle cx="1364" cy="372" r="3.8"/><circle cx="1380" cy="401" r="4.1"/>
+      <circle cx="1396" cy="352" r="3.9"/><circle cx="1412" cy="379" r="4"/><circle cx="1428" cy="364" r="3.8"/>
+      <circle cx="1444" cy="398" r="4.2"/><circle cx="1460" cy="358" r="3.7"/><circle cx="1390" cy="412" r="3.6"/>
+    </g>
+    <text x="1412" y="336" text-anchor="middle" fill="#2dd4bf" font-size="10.5">top 20 标签</text>
+    <path d="M1412 341 l-5 8 h10 z" fill="#2dd4bf" opacity="0.7"/>
+
+    <text x="1114" y="658" class="rw-note" fill="#3fb950">标签已精简 · 配色已更新 · 其余点位未改动</text>
+  </g>
+
+  <path d="M60 704 H1540" stroke="#21262d" stroke-width="1"/>
+  <text x="800" y="744" text-anchor="middle" class="rw-foot">选区 + 意见一起回到对话，只改这一处 · 旧版本自动保留，可对比、可回退</text>
+  <g font-size="12">
+    <rect x="574" y="768" width="118" height="28" rx="14" fill="#161b22" stroke="#30363d"/>
+    <text x="633" y="786" text-anchor="middle" fill="#8b949e">v1 已保留</text>
+    <rect x="708" y="768" width="118" height="28" rx="14" fill="#2dd4bf" fill-opacity="0.08" stroke="#2dd4bf" stroke-opacity="0.35"/>
+    <text x="767" y="786" text-anchor="middle" fill="#2dd4bf">v2 已生成</text>
+    <rect x="842" y="768" width="164" height="28" rx="14" fill="#161b22" stroke="#30363d"/>
+    <text x="924" y="786" text-anchor="middle" fill="#8b949e">可对比 · 可回退</text>
+  </g>
+</svg>
