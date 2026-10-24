@@ -1,0 +1,155 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="960" viewBox="0 0 1600 960" role="img" aria-labelledby="ftTitle ftDesc" font-family="Noto Sans SC, Source Han Sans SC, Microsoft YaHei, PingFang SC, Hiragino Sans GB, sans-serif">
+  <title id="ftTitle">YCFS_APP 能力地图</title>
+  <desc id="ftDesc">以 YCFS_APP 为中心，连接对话式分析、代码者模式、技能、产物预览与框选返修、报告与导出、协作与共享、文献速递、内嵌浏览器八项能力。</desc>
+  <defs>
+    <linearGradient id="ftBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0d1117"/>
+      <stop offset="0.6" stop-color="#0d1117"/>
+      <stop offset="1" stop-color="#0b1320"/>
+    </linearGradient>
+    <radialGradient id="ftGlow" cx="0.5" cy="0.52" r="0.55">
+      <stop offset="0" stop-color="#2dd4bf" stop-opacity="0.13"/>
+      <stop offset="1" stop-color="#2dd4bf" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ftHub" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#123330"/>
+      <stop offset="1" stop-color="#161b22"/>
+    </linearGradient>
+    <radialGradient id="ftHubGlow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#2dd4bf" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#2dd4bf" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="ftDots" width="30" height="30" patternUnits="userSpaceOnUse">
+      <circle cx="1.4" cy="1.4" r="1.1" fill="#30363d" opacity="0.5"/>
+    </pattern>
+    <style>
+      .ft-title { fill: #e6edf3; font-size: 40px; font-weight: 700; letter-spacing: 0.5px; }
+      .ft-sub { fill: #8b949e; font-size: 16px; }
+      .ft-hub-name { fill: #e6edf3; font-size: 34px; font-weight: 700; letter-spacing: 1px; }
+      .ft-hub-cn { fill: #2dd4bf; font-size: 17px; font-weight: 600; letter-spacing: 4px; }
+      .ft-hub-tag { fill: #8b949e; font-size: 12px; letter-spacing: 1px; }
+      .ft-node-title { fill: #e6edf3; font-size: 16.5px; font-weight: 600; }
+      .ft-node-sub { fill: #8b949e; font-size: 11.5px; }
+      .ft-foot { fill: #8b949e; font-size: 14px; letter-spacing: 0.5px; }
+      .ft-ico { fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="960" fill="url(#ftBg)"/>
+  <rect width="1600" height="960" fill="url(#ftDots)"/>
+  <rect width="1600" height="960" fill="url(#ftGlow)"/>
+
+  <text x="800" y="82" text-anchor="middle" class="ft-title">一个对话，装下一整套生信工作流</text>
+  <text x="800" y="120" text-anchor="middle" class="ft-sub">从提问、执行到返修、交付，能力都长在同一个工作区里</text>
+
+  <!-- 连接线 -->
+  <g fill="none" stroke="#2dd4bf" stroke-opacity="0.2" stroke-width="1.5" stroke-dasharray="2 7" stroke-linecap="round">
+    <path d="M800 500 L800 210"/>
+    <path d="M800 500 L1182 295"/>
+    <path d="M800 500 L1340 500"/>
+    <path d="M800 500 L1182 705"/>
+    <path d="M800 500 L800 790"/>
+    <path d="M800 500 L418 705"/>
+    <path d="M800 500 L260 500"/>
+    <path d="M800 500 L418 295"/>
+  </g>
+
+  <!-- 中心 -->
+  <g>
+    <circle cx="800" cy="500" r="142" fill="url(#ftHubGlow)"/>
+    <circle cx="800" cy="500" r="112" fill="none" stroke="#2dd4bf" stroke-opacity="0.16"/>
+    <circle cx="800" cy="500" r="138" fill="none" stroke="#2dd4bf" stroke-opacity="0.07"/>
+    <rect x="650" y="435" width="300" height="130" rx="22" fill="url(#ftHub)" stroke="#2dd4bf" stroke-opacity="0.55"/>
+    <rect x="650" y="435" width="300" height="130" rx="22" fill="none" stroke="#2dd4bf" stroke-opacity="0.12"/>
+    <text x="800" y="492" text-anchor="middle" class="ft-hub-name">YCFS_APP</text>
+    <text x="800" y="522" text-anchor="middle" class="ft-hub-cn">言出法随</text>
+    <text x="800" y="548" text-anchor="middle" class="ft-hub-tag">对话式生信分析平台</text>
+  </g>
+
+  <!-- 01 对话式分析 -->
+  <g>
+    <rect x="665" y="168" width="270" height="84" rx="14" fill="#161b22" stroke="#30363d"/>
+    <path d="M665 182 v56" stroke="#2dd4bf" stroke-width="3" stroke-linecap="round" opacity="0.85"/>
+    <circle cx="700" cy="210" r="18" fill="#2dd4bf" fill-opacity="0.1" stroke="#2dd4bf" stroke-opacity="0.3"/>
+    <path d="M691 203 h18 a4 4 0 0 1 4 4 v9 a4 4 0 0 1 -4 4 h-10 l-6 5 v-5 h-2 a4 4 0 0 1 -4 -4 v-9 a4 4 0 0 1 4 -4 z" class="ft-ico" stroke="#2dd4bf"/>
+    <text x="732" y="205" class="ft-node-title">对话式分析</text>
+    <text x="732" y="227" class="ft-node-sub">中文说需求，直接执行</text>
+  </g>
+
+  <!-- 02 代码者模式 -->
+  <g>
+    <rect x="1047" y="253" width="270" height="84" rx="14" fill="#161b22" stroke="#30363d"/>
+    <path d="M1047 267 v56" stroke="#22d3ee" stroke-width="3" stroke-linecap="round" opacity="0.85"/>
+    <circle cx="1082" cy="295" r="18" fill="#22d3ee" fill-opacity="0.1" stroke="#22d3ee" stroke-opacity="0.3"/>
+    <path d="M1077 287 l-6 8 6 8 M1087 287 l6 8 -6 8" class="ft-ico" stroke="#22d3ee"/>
+    <text x="1114" y="290" class="ft-node-title">代码者模式</text>
+    <text x="1114" y="312" class="ft-node-sub">编辑器、变量、控制台</text>
+  </g>
+
+  <!-- 03 技能 -->
+  <g>
+    <rect x="1205" y="458" width="270" height="84" rx="14" fill="#161b22" stroke="#30363d"/>
+    <path d="M1205 472 v56" stroke="#a78bfa" stroke-width="3" stroke-linecap="round" opacity="0.85"/>
+    <circle cx="1240" cy="500" r="18" fill="#a78bfa" fill-opacity="0.1" stroke="#a78bfa" stroke-opacity="0.3"/>
+    <path d="M1240 489 l3.2 6.8 7.3 1 -5.3 5.4 1.3 7.6 -6.5 -3.5 -6.5 3.5 1.3 -7.6 -5.3 -5.4 7.3 -1 z" class="ft-ico" stroke="#a78bfa"/>
+    <text x="1272" y="495" class="ft-node-title">技能</text>
+    <text x="1272" y="517" class="ft-node-sub">2000+ 生信流程，按对话挂载</text>
+  </g>
+
+  <!-- 04 产物预览与框选返修 -->
+  <g>
+    <rect x="1047" y="663" width="270" height="84" rx="14" fill="#161b22" stroke="#30363d"/>
+    <path d="M1047 677 v56" stroke="#f59e0b" stroke-width="3" stroke-linecap="round" opacity="0.85"/>
+    <circle cx="1082" cy="705" r="18" fill="#f59e0b" fill-opacity="0.1" stroke="#f59e0b" stroke-opacity="0.3"/>
+    <rect x="1071" y="696" width="18" height="16" rx="2" class="ft-ico" stroke="#f59e0b" stroke-dasharray="4 3"/>
+    <path d="M1090 703 l5 5 -5 5" class="ft-ico" stroke="#f59e0b"/>
+    <text x="1114" y="700" class="ft-node-title">产物预览与框选返修</text>
+    <text x="1114" y="722" class="ft-node-sub">图、表、报告，指哪改哪</text>
+  </g>
+
+  <!-- 05 报告与导出 -->
+  <g>
+    <rect x="665" y="748" width="270" height="84" rx="14" fill="#161b22" stroke="#30363d"/>
+    <path d="M665 762 v56" stroke="#3fb950" stroke-width="3" stroke-linecap="round" opacity="0.85"/>
+    <circle cx="700" cy="790" r="18" fill="#3fb950" fill-opacity="0.1" stroke="#3fb950" stroke-opacity="0.3"/>
+    <path d="M693 780 h10 l6 6 v16 h-16 z M703 780 v6 h6" class="ft-ico" stroke="#3fb950"/>
+    <text x="732" y="785" class="ft-node-title">报告与导出</text>
+    <text x="732" y="807" class="ft-node-sub">HTML / Word / PPTX</text>
+  </g>
+
+  <!-- 06 协作与共享 -->
+  <g>
+    <rect x="283" y="663" width="270" height="84" rx="14" fill="#161b22" stroke="#30363d"/>
+    <path d="M283 677 v56" stroke="#f472b6" stroke-width="3" stroke-linecap="round" opacity="0.85"/>
+    <circle cx="318" cy="705" r="18" fill="#f472b6" fill-opacity="0.1" stroke="#f472b6" stroke-opacity="0.3"/>
+    <circle cx="312" cy="700" r="4" class="ft-ico" stroke="#f472b6"/>
+    <circle cx="324" cy="702" r="4" class="ft-ico" stroke="#f472b6"/>
+    <path d="M305 712 c0 -4 3 -6 7 -6 s7 2 7 6 M317 712 c0 -3 2 -5 5 -5" class="ft-ico" stroke="#f472b6"/>
+    <text x="350" y="700" class="ft-node-title">协作与共享</text>
+    <text x="350" y="722" class="ft-node-sub">只读 / 可写，@ 协作</text>
+  </g>
+
+  <!-- 07 文献速递 -->
+  <g>
+    <rect x="125" y="458" width="270" height="84" rx="14" fill="#161b22" stroke="#30363d"/>
+    <path d="M125 472 v56" stroke="#60a5fa" stroke-width="3" stroke-linecap="round" opacity="0.85"/>
+    <circle cx="160" cy="500" r="18" fill="#60a5fa" fill-opacity="0.1" stroke="#60a5fa" stroke-opacity="0.3"/>
+    <path d="M151 491 h8 v18 h-8 z M159 491 h8 v18 h-8 M151 491 c3 -2 5 -2 8 0 M159 491 c3 -2 5 -2 8 0" class="ft-ico" stroke="#60a5fa"/>
+    <text x="192" y="495" class="ft-node-title">文献速递</text>
+    <text x="192" y="517" class="ft-node-sub">PubMed / bioRxiv，定时检索</text>
+  </g>
+
+  <!-- 08 内嵌浏览器 -->
+  <g>
+    <rect x="283" y="253" width="270" height="84" rx="14" fill="#161b22" stroke="#30363d"/>
+    <path d="M283 267 v56" stroke="#fb923c" stroke-width="3" stroke-linecap="round" opacity="0.85"/>
+    <circle cx="318" cy="295" r="18" fill="#fb923c" fill-opacity="0.1" stroke="#fb923c" stroke-opacity="0.3"/>
+    <circle cx="318" cy="295" r="8" class="ft-ico" stroke="#fb923c"/>
+    <path d="M310 295 h16 M318 287 c3 3 3 13 0 16 M318 287 c-3 3 -3 13 0 16" class="ft-ico" stroke="#fb923c"/>
+    <text x="350" y="290" class="ft-node-title">内嵌浏览器</text>
+    <text x="350" y="312" class="ft-node-sub">查库、看文献，不离开平台</text>
+  </g>
+
+  <path d="M300 878 H1300" stroke="#21262d" stroke-width="1"/>
+  <text x="800" y="916" text-anchor="middle" class="ft-foot">说需求 → 真执行 → 看产物 → 改到满意 → 交付</text>
+</svg>
