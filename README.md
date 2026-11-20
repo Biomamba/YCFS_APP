@@ -8,7 +8,7 @@
 
 **访问地址：<https://www.biomamba.cn/YCFS_APP/>**
 
-**当前版本：Test V21.47**（2026-11-18）· [更新日志](CHANGELOG.md)
+**当前版本：Test V21.50**（2026-11-20）· [更新日志](CHANGELOG.md)
 
 ![YCFS_APP 工作流程：一句话需求 → 规划 → 执行 R/Python → 产物 → 追问与返修 → 导出交付](docs/images/workflow.svg)
 
