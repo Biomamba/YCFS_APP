@@ -106,10 +106,10 @@ python3 docs/devlog/scripts/check_features.py --base http://127.0.0.1:34039/YCFS
 
 退出码：`0` 无 FAIL，`1` 有 FAIL，`2` 用法错误。可以直接进 CI/cron 做「功能回归闸门」。
 
-### 3.2 940 首轮真实结果（2026-11-21 11:08，`--include-cli`）
+### 3.2 940 首轮真实结果（2026-11-21 11:08，`--include-cli`，在仓库副本里跑）
 
 ```
-features: /tmp/features.json
+features: /tmp/YCFFS_APP_verify/docs/devlog/features.json
 base    : http://127.0.0.1:34039/YCFS_APP
 mode    : http+cli
 
@@ -128,6 +128,9 @@ mode    : http+cli
 
 汇总: OK=66 FAIL=3 MANUAL=32
 ```
+
+> 输出里的 `features:` 是仓库副本的绝对路径，随机器而异；数字与判定不受影响。
+> 同一份清单在大禹上跑会多出 15 条 FAIL（见 §3.3）——那正是「备机缺」的清单。
 
 **940 上这 3 个 FAIL 都是「真缺」，不是脚本误报：**
 
