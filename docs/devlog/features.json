@@ -1,0 +1,2569 @@
+{
+  "schema": "ycfs-features/1",
+  "name": "YCFS_APP 全量功能清单",
+  "updated_at": "2026-11-21",
+  "base_url": "http://127.0.0.1:34039/YCFS_APP",
+  "checked_on": {
+    "host": "940 (sw2-primary1.xiyoucloud.pro)",
+    "binary_version": "Test V21.53",
+    "generation": "g264",
+    "asset_version": "V21.48",
+    "at": "2026-11-21T11:00:00+08:00"
+  },
+  "how_to_check": {
+    "http": "scripts/check_features.py --base http://127.0.0.1:34039/YCFS_APP",
+    "cli": "同一条命令；kind=cli 的条目也会被执行（同样只读）",
+    "ui": "kind=ui 不自动跑，输出 MANUAL，必须人工确认",
+    "expect": "数字=HTTP 状态码；a|b=任一即可；re:...=对 stdout 做正则匹配；其它=字符串相等"
+  },
+  "node_status_legend": {
+    "ok": "本轮（2026-11-21 11:00-11:05 CST）实测通过",
+    "degraded": "功能和路由在，但有已知缺陷或处在只读/受限态",
+    "missing": "本轮实测缺失（404/connection refused/unit 不存在/0 实例）",
+    "unknown": "本轮未实测（需要登录态、管理员身份或会写库），不代表正常"
+  },
+  "layers": [
+    "web",
+    "chat",
+    "model",
+    "runner",
+    "transfer",
+    "jupyter",
+    "audio",
+    "admin",
+    "ops"
+  ],
+  "features": [
+    {
+      "id": "web.home",
+      "name": "首页 / 工作台入口",
+      "layer": "web",
+      "user_path": "浏览器打开 https://www.biomamba.cn/YCFS_APP/",
+      "verify": {
+        "kind": "http",
+        "cmd": "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:34039/YCFS_APP/",
+        "expect": "200"
+      },
+      "depends_on": [],
+      "nodes": {
+        "940": "ok",
+        "dayu": "ok"
+      },
+      "known_limits": [
+        "首页是 SPA 外壳，真正的工作区在登录后渲染；未登录只能验到外壳 200"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§一"
+      ]
+    },
+    {
+      "id": "web.login",
+      "name": "登录页",
+      "layer": "web",
+      "user_path": "打开站点 → 未登录自动进 /login",
+      "verify": {
+        "kind": "http",
+        "cmd": "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:34039/YCFS_APP/login",
+        "expect": "200"
+      },
+      "depends_on": [],
+      "nodes": {
+        "940": "ok",
+        "dayu": "ok"
+      },
+      "known_limits": [],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§2.1"
+      ]
+    },
+    {
+      "id": "web.register",
+      "name": "注册页（邮箱验证码）",
+      "layer": "web",
+      "user_path": "登录页 → 注册",
+      "verify": {
+        "kind": "http",
+        "cmd": "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:34039/YCFS_APP/register",
+        "expect": "200"
+      },
+      "depends_on": [
+        "ops.smtp_config"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "ok"
+      },
+      "known_limits": [
+        "注册页本身 200 不代表能收到验证码：大禹 conf/dsapp.env 为 0 字节、0 个 SMTP 键（2026-11-21 实测）"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§2.1"
+      ]
+    },
+    {
+      "id": "web.forgot_password",
+      "name": "找回密码页",
+      "layer": "web",
+      "user_path": "登录页 → 忘记密码",
+      "verify": {
+        "kind": "http",
+        "cmd": "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:34039/YCFS_APP/forgot-password",
+        "expect": "200"
+      },
+      "depends_on": [
+        "ops.smtp_config"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "ok"
+      },
+      "known_limits": [
+        "同注册：页面 200 ≠ 邮件可达；大禹 SMTP 未配置"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§2.1"
+      ]
+    },
+    {
+      "id": "web.static_assets",
+      "name": "前端静态资产（JS/CSS）可加载",
+      "layer": "web",
+      "user_path": "任意页面加载 /static/*",
+      "verify": {
+        "kind": "http",
+        "cmd": "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:34039/YCFS_APP/static/preview.js",
+        "expect": "200"
+      },
+      "depends_on": [],
+      "nodes": {
+        "940": "ok",
+        "dayu": "ok"
+      },
+      "known_limits": [
+        "大禹资产是 V21.47 一代，落后于 940 的 V21.48（asset_version）"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§一"
+      ]
+    },
+    {
+      "id": "web.auth_style",
+      "name": "登录页独立样式",
+      "layer": "web",
+      "user_path": "打开 /login 看样式是否正常",
+      "verify": {
+        "kind": "http",
+        "cmd": "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:34039/YCFS_APP/static/auth-lite.css",
+        "expect": "200"
+      },
+      "depends_on": [],
+      "nodes": {
+        "940": "ok",
+        "dayu": "ok"
+      },
+      "known_limits": [],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§14.2"
+      ]
+    },
+    {
+      "id": "web.session_list",
+      "name": "会话列表（新建/重命名/删除/置顶）",
+      "layer": "web",
+      "user_path": "登录 → 左侧会话栏",
+      "verify": {
+        "kind": "ui",
+        "cmd": "",
+        "expect": "人工确认"
+      },
+      "depends_on": [
+        "web.login"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "kind=ui：需要登录态或点击操作，自动检查只标 MANUAL，必须人工确认",
+        "需登录态；大禹本轮未做登录后渲染"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§4.1"
+      ]
+    },
+    {
+      "id": "web.file_tree",
+      "name": "文件树（去冗余路径 + 按需显示来源）",
+      "layer": "web",
+      "user_path": "登录 → 文件面板",
+      "verify": {
+        "kind": "ui",
+        "cmd": "",
+        "expect": "人工确认"
+      },
+      "depends_on": [
+        "web.login"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "kind=ui：需要登录态或点击操作，自动检查只标 MANUAL，必须人工确认",
+        "V21.46 起不再每行显示所属文件夹"
+      ],
+      "since": "V21.46",
+      "req_refs": [
+        "2026-11-17-#3"
+      ]
+    },
+    {
+      "id": "web.preview",
+      "name": "产物在线预览（html/pdf/docx/xlsx/图片）",
+      "layer": "web",
+      "user_path": "对话里点开产物卡片",
+      "verify": {
+        "kind": "ui",
+        "cmd": "",
+        "expect": "人工确认"
+      },
+      "depends_on": [
+        "web.login",
+        "web.file_tree"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "kind=ui：需要登录态或点击操作，自动检查只标 MANUAL，必须人工确认",
+        "圈选返修默认阅读模式，需点「框选返修」才进圈选"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "2026-11-17-#1",
+        "2026-11-17-#2"
+      ]
+    },
+    {
+      "id": "web.search",
+      "name": "全站搜索",
+      "layer": "web",
+      "user_path": "顶部搜索框",
+      "verify": {
+        "kind": "ui",
+        "cmd": "",
+        "expect": "人工确认"
+      },
+      "depends_on": [
+        "web.login"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "kind=ui：需要登录态或点击操作，自动检查只标 MANUAL，必须人工确认"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§14.1"
+      ]
+    },
+    {
+      "id": "web.theme",
+      "name": "主题切换（深色/浅色）",
+      "layer": "web",
+      "user_path": "右上角头像 → 外观",
+      "verify": {
+        "kind": "ui",
+        "cmd": "",
+        "expect": "人工确认"
+      },
+      "depends_on": [
+        "web.login"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "kind=ui：需要登录态或点击操作，自动检查只标 MANUAL，必须人工确认",
+        "主题值存 localStorage(dsapp_skin)，默认 dark"
+      ],
+      "since": "V18.8",
+      "req_refs": [
+        "V18.8-台账§14.2"
+      ]
+    },
+    {
+      "id": "web.mobile",
+      "name": "移动端布局（窄屏可用）",
+      "layer": "web",
+      "user_path": "手机浏览器打开站点",
+      "verify": {
+        "kind": "ui",
+        "cmd": "",
+        "expect": "人工确认"
+      },
+      "depends_on": [],
+      "nodes": {
+        "940": "ok",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "kind=ui：需要登录态或点击操作，自动检查只标 MANUAL，必须人工确认",
+        "1366x768 / 600x800 曾做过截图判据（composer_selftest）"
+      ],
+      "since": "V18.7",
+      "req_refs": [
+        "V18.7-台账§14.1"
+      ]
+    },
+    {
+      "id": "web.notice_center",
+      "name": "通知中心",
+      "layer": "web",
+      "user_path": "顶栏铃铛 → 通知",
+      "verify": {
+        "kind": "http",
+        "cmd": "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:34039/YCFS_APP/api/account/notices",
+        "expect": "401"
+      },
+      "depends_on": [
+        "web.login"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "ok"
+      },
+      "known_limits": [
+        "未登录返回 401 表示路由存在；内容正确性需登录态人工确认"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§2.3"
+      ]
+    },
+    {
+      "id": "web.user_profile",
+      "name": "个人中心 / 账号设置",
+      "layer": "web",
+      "user_path": "头像 → 个人中心",
+      "verify": {
+        "kind": "http",
+        "cmd": "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:34039/YCFS_APP/api/user-profile",
+        "expect": "401"
+      },
+      "depends_on": [
+        "web.login"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "ok"
+      },
+      "known_limits": [
+        "401=路由存在；页面行为需人工"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§2.3"
+      ]
+    },
+    {
+      "id": "chat.streaming",
+      "name": "对话流式生成（SSE）",
+      "layer": "chat",
+      "user_path": "进入会话 → 发一句话 → 看是否逐字出",
+      "verify": {
+        "kind": "http",
+        "cmd": "curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:34039/YCFS_APP/api/chat",
+        "expect": "401"
+      },
+      "depends_on": [
+        "model.keyring",
+        "web.login"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "degraded"
+      },
+      "known_limits": [
+        "401=路由存在且要求登录；真实流式需登录态人工确认",
+        "大禹当前只读栅栏生效：POST /api/chat → 503（实测）"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§四"
+      ]
+    },
+    {
+      "id": "chat.messages",
+      "name": "历史消息读取",
+      "layer": "chat",
+      "user_path": "刷新页面后历史仍在",
+      "verify": {
+        "kind": "http",
+        "cmd": "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:34039/YCFS_APP/api/chat/messages",
+        "expect": "405"
+      },
+      "depends_on": [
+        "web.login"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "ok"
+      },
+      "known_limits": [
+        "405=路由存在但方法不对（GET 探测用）；正确方法需登录态"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§4.2"
+      ]
+    },
+    {
+      "id": "chat.attach",
+      "name": "对话附件上传状态机",
+      "layer": "chat",
+      "user_path": "输入框 → 回形针 → 选文件",
+      "verify": {
+        "kind": "http",
+        "cmd": "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:34039/YCFS_APP/api/chat/upload-state",
+        "expect": "405"
+      },
+      "depends_on": [
+        "transfer.files"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "405=路由存在；大禹未单独探测该路由"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§4.5"
+      ]
+    },
+    {
+      "id": "chat.tool_call",
+      "name": "工具调用（执行/读写/联网）",
+      "layer": "chat",
+      "user_path": "让 AI「跑一段代码看结果」",
+      "verify": {
+        "kind": "ui",
+        "cmd": "",
+        "expect": "人工确认"
+      },
+      "depends_on": [
+        "runner.workers",
+        "chat.streaming"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "kind=ui：需要登录态或点击操作，自动检查只标 MANUAL，必须人工确认"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§4.3"
+      ]
+    },
+    {
+      "id": "chat.coder_mode",
+      "name": "代码者模式（可改代码、可跑）",
+      "layer": "chat",
+      "user_path": "对话设置 → 代码者模式",
+      "verify": {
+        "kind": "ui",
+        "cmd": "",
+        "expect": "人工确认"
+      },
+      "depends_on": [
+        "chat.streaming"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "kind=ui：需要登录态或点击操作，自动检查只标 MANUAL，必须人工确认"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§4.3"
+      ]
+    },
+    {
+      "id": "chat.notebook_panel",
+      "name": "整本 Notebook 面板 +「在 JupyterLab 打开」",
+      "layer": "chat",
+      "user_path": "代码者模式 → Notebook 面板 → 在 JupyterLab 打开",
+      "verify": {
+        "kind": "ui",
+        "cmd": "",
+        "expect": "人工确认"
+      },
+      "depends_on": [
+        "jupyter.route"
+      ],
+      "nodes": {
+        "940": "unknown",
+        "dayu": "missing"
+      },
+      "known_limits": [
+        "kind=ui：需要登录态或点击操作，自动检查只标 MANUAL，必须人工确认",
+        "V21.54/g265 已构建、**未部署**：线上仍 g264，/static/chat.abecfed5.js 404（实测）",
+        "Jupyter 关闭时按钮仍在，点击得到 503 人话提示"
+      ],
+      "since": "V21.54",
+      "req_refs": [
+        "2026-11-21-#2"
+      ]
+    },
+    {
+      "id": "chat.art_cards",
+      "name": "产物卡片（图/表/报告）",
+      "layer": "chat",
+      "user_path": "执行完成后看产物列表",
+      "verify": {
+        "kind": "ui",
+        "cmd": "",
+        "expect": "人工确认"
+      },
+      "depends_on": [
+        "web.preview"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "kind=ui：需要登录态或点击操作，自动检查只标 MANUAL，必须人工确认"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§4.5"
+      ]
+    },
+    {
+      "id": "chat.script_proposal",
+      "name": "脚本建议（chat-script-proposals）",
+      "layer": "chat",
+      "user_path": "对话里出现「脚本建议」条",
+      "verify": {
+        "kind": "http",
+        "cmd": "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:34039/YCFS_APP/api/chat-script-proposals",
+        "expect": "405"
+      },
+      "depends_on": [
+        "chat.streaming"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "405=路由存在；大禹未单独探测"
+      ],
+      "since": "V18.9",
+      "req_refs": [
+        "V18.9-台账"
+      ]
+    },
+    {
+      "id": "chat.schedules",
+      "name": "定时对话 / 定时任务",
+      "layer": "chat",
+      "user_path": "会话菜单 → 定时",
+      "verify": {
+        "kind": "http",
+        "cmd": "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:34039/YCFS_APP/api/chat-schedules",
+        "expect": "405"
+      },
+      "depends_on": [
+        "web.login"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "405=路由存在；大禹未单独探测"
+      ],
+      "since": "V18.9",
+      "req_refs": [
+        "V18.9-台账"
+      ]
+    },
+    {
+      "id": "chat.stop",
+      "name": "停止生成",
+      "layer": "chat",
+      "user_path": "生成中点「停止」",
+      "verify": {
+        "kind": "ui",
+        "cmd": "",
+        "expect": "人工确认"
+      },
+      "depends_on": [
+        "chat.streaming"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "kind=ui：需要登录态或点击操作，自动检查只标 MANUAL，必须人工确认"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§4.4"
+      ]
+    },
+    {
+      "id": "chat.voice_input",
+      "name": "语音输入（录音上传 → ASR）",
+      "layer": "chat",
+      "user_path": "输入框麦克风 → 说一句 → 转文字",
+      "verify": {
+        "kind": "ui",
+        "cmd": "",
+        "expect": "人工确认"
+      },
+      "depends_on": [
+        "audio.asr",
+        "transfer.upload_34080"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "missing"
+      },
+      "known_limits": [
+        "kind=ui：需要登录态或点击操作，自动检查只标 MANUAL，必须人工确认",
+        "写通道走直传域名 34080；大禹无 34080 也无语音服务"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§4.4"
+      ]
+    },
+    {
+      "id": "chat.tts_play",
+      "name": "朗读（TTS）",
+      "layer": "chat",
+      "user_path": "回复气泡 → 朗读",
+      "verify": {
+        "kind": "ui",
+        "cmd": "",
+        "expect": "人工确认"
+      },
+      "depends_on": [
+        "audio.tts",
+        "transfer.upload_34080"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "missing"
+      },
+      "known_limits": [
+        "kind=ui：需要登录态或点击操作，自动检查只标 MANUAL，必须人工确认",
+        "tts_engine=moss（本机）；云档为可选开关"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§4.4"
+      ]
+    },
+    {
+      "id": "model.channels",
+      "name": "多渠道列表与启用状态",
+      "layer": "model",
+      "user_path": "模型服务页 → 渠道",
+      "verify": {
+        "kind": "http",
+        "cmd": "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:34039/YCFS_APP/api/model",
+        "expect": "405"
+      },
+      "depends_on": [
+        "web.login"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "ok"
+      },
+      "known_limits": [
+        "405=路由存在；渠道正确性需登录态",
+        "线上实测 8 个渠道 / 6 个启用（DB 只读查询）"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§三"
+      ]
+    },
+    {
+      "id": "model.routing",
+      "name": "多渠道路由（同模型多来源）",
+      "layer": "model",
+      "user_path": "选一个多来源模型 → 发一句话",
+      "verify": {
+        "kind": "ui",
+        "cmd": "",
+        "expect": "人工确认"
+      },
+      "depends_on": [
+        "model.channels"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "kind=ui：需要登录态或点击操作，自动检查只标 MANUAL，必须人工确认",
+        "显式来源策略优先于模型行 enabled：关模型行不一定关掉策略里的源（platform_model_groups.go）"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "2026-11-18-#13"
+      ]
+    },
+    {
+      "id": "model.failover",
+      "name": "失败自动换源（首字之前、静默）",
+      "layer": "model",
+      "user_path": "选 gpt-5.6-sol 发一句 → 看是否仍能正常回答",
+      "verify": {
+        "kind": "ui",
+        "cmd": "",
+        "expect": "人工确认"
+      },
+      "depends_on": [
+        "model.routing"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "kind=ui：需要登录态或点击操作，自动检查只标 MANUAL，必须人工确认",
+        "换源只发生在首字之前；对用户静默，只有账单 detail.model_route.fallback=true 留痕",
+        "实测样本：1043 条带路由账单里 39 条 fallback=true，全部 completed"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "2026-11-18-#13"
+      ]
+    },
+    {
+      "id": "model.source_priority",
+      "name": "来源优先级（显式 sources_json）",
+      "layer": "model",
+      "user_path": "模型 → 来源优先级 → 勾选/取消 → 保存",
+      "verify": {
+        "kind": "cli",
+        "cmd": "python3 -c \"import sqlite3;c=sqlite3.connect('file:/data3/biomamba/analysis/DS_App/data/dsapp.sqlite3?mode=ro',uri=True,timeout=10);print(c.execute('select count(*) from ycfs_model_source_priorities').fetchone()[0])\"",
+        "expect": "re:^[1-9][0-9]*$"
+      },
+      "depends_on": [
+        "model.routing"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "只证明策略表非空（实测 47 条）；具体排序需登录态人工确认"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§3.2"
+      ]
+    },
+    {
+      "id": "model.keyring",
+      "name": "凭据密钥可解密（.keyring / .secret_key）",
+      "layer": "model",
+      "user_path": "任意模型调用能成功（不解密就全挂）",
+      "verify": {
+        "kind": "cli",
+        "cmd": "test -s /data3/biomamba/analysis/DS_App/data/.keyring && test -s /data3/biomamba/analysis/DS_App/data/.secret_key && echo ok",
+        "expect": "ok"
+      },
+      "depends_on": [],
+      "nodes": {
+        "940": "ok",
+        "dayu": "ok"
+      },
+      "known_limits": [
+        "只验文件存在；内容不看、不外传",
+        "2026-11-19 事故：只同步库不同步 .keyring ⇒ 所有模型不可用（页面却正常）"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "2026-11-19-#16"
+      ]
+    },
+    {
+      "id": "model.admin_models",
+      "name": "管理员模型页（性能/模型行）",
+      "layer": "model",
+      "user_path": "管理员 → 模型服务",
+      "verify": {
+        "kind": "http",
+        "cmd": "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:34039/YCFS_APP/api/admin/performance",
+        "expect": "401"
+      },
+      "depends_on": [
+        "web.login"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "ok"
+      },
+      "known_limits": [
+        "401=路由存在；页面内容需管理员登录态"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§十二"
+      ]
+    },
+    {
+      "id": "model.limit_hint",
+      "name": "余额 / 限流 / 权限提示（失败分类）",
+      "layer": "model",
+      "user_path": "余额不足或 429 时看提示文案",
+      "verify": {
+        "kind": "ui",
+        "cmd": "",
+        "expect": "人工确认"
+      },
+      "depends_on": [
+        "chat.streaming"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "kind=ui：需要登录态或点击操作，自动检查只标 MANUAL，必须人工确认",
+        "V21.49 起失败分类 auth/permission/model_not_found/rate_limit/upstream_error",
+        "已知缺口：401/403/404/429 分类仍偏粗，定位「哪个渠道坏」不够精确"
+      ],
+      "since": "V21.49",
+      "req_refs": [
+        "2026-11-18-#14",
+        "2026-11-20-#6"
+      ]
+    },
+    {
+      "id": "model.personal_keys",
+      "name": "用户自带 Key / 私有模型",
+      "layer": "model",
+      "user_path": "模型服务 → 我的 Key",
+      "verify": {
+        "kind": "ui",
+        "cmd": "",
+        "expect": "人工确认"
+      },
+      "depends_on": [
+        "model.channels"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "kind=ui：需要登录态或点击操作，自动检查只标 MANUAL，必须人工确认"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§3.2"
+      ]
+    },
+    {
+      "id": "model.platform_models",
+      "name": "平台模型清单（505 行 / 151 启用）",
+      "layer": "model",
+      "user_path": "模型服务页 → 模型列表",
+      "verify": {
+        "kind": "cli",
+        "cmd": "python3 -c \"import sqlite3;c=sqlite3.connect('file:/data3/biomamba/analysis/DS_App/data/dsapp.sqlite3?mode=ro',uri=True,timeout=10);print(c.execute('select count(*) from v18_platform_models').fetchone()[0])\"",
+        "expect": "re:^[1-9][0-9]*$"
+      },
+      "depends_on": [
+        "model.channels"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "只证明表非空；启停状态需管理员页确认",
+        "2026-11-18 曾把 4 行 glm-5/gemini-3.1-flash-lite 置 0"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "2026-11-18-#13"
+      ]
+    },
+    {
+      "id": "runner.workers",
+      "name": "8 个队列 worker 常驻",
+      "layer": "runner",
+      "user_path": "提交一个分析任务 → 应被 worker 抢到",
+      "verify": {
+        "kind": "cli",
+        "cmd": "systemctl list-units --type=service --state=running 'dsapp-v18-worker@*' --no-legend --no-pager | wc -l",
+        "expect": "8"
+      },
+      "depends_on": [],
+      "nodes": {
+        "940": "ok",
+        "dayu": "missing"
+      },
+      "known_limits": [
+        "大禹只有 ycfs-dr-worker@.service 模板（disabled），0 个实例 ⇒ 任务永远 pending"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V21.50-大禹补齐"
+      ]
+    },
+    {
+      "id": "runner.worker_alive",
+      "name": "单个 worker 存活",
+      "layer": "runner",
+      "user_path": "同上",
+      "verify": {
+        "kind": "cli",
+        "cmd": "systemctl is-active dsapp-v18-worker@1",
+        "expect": "active"
+      },
+      "depends_on": [
+        "runner.workers"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "missing"
+      },
+      "known_limits": [],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§7.1"
+      ]
+    },
+    {
+      "id": "runner.python",
+      "name": "Python 分析任务",
+      "layer": "runner",
+      "user_path": "发「用 pandas 读这个表，输出前 5 行」",
+      "verify": {
+        "kind": "ui",
+        "cmd": "",
+        "expect": "人工确认"
+      },
+      "depends_on": [
+        "runner.workers",
+        "runner.sandbox_bwrap"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "missing"
+      },
+      "known_limits": [
+        "kind=ui：需要登录态或点击操作，自动检查只标 MANUAL，必须人工确认",
+        "大禹 DSAPP_PYTHON 未配（dsapp.env 0 字节），回落到无 pandas 的 python3.8"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§7.1"
+      ]
+    },
+    {
+      "id": "runner.r",
+      "name": "R 分析任务",
+      "layer": "runner",
+      "user_path": "发「用 DESeq2 做差异分析」",
+      "verify": {
+        "kind": "ui",
+        "cmd": "",
+        "expect": "人工确认"
+      },
+      "depends_on": [
+        "runner.workers",
+        "runner.sandbox_bwrap"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "missing"
+      },
+      "known_limits": [
+        "kind=ui：需要登录态或点击操作，自动检查只标 MANUAL，必须人工确认"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§7.1"
+      ]
+    },
+    {
+      "id": "runner.sandbox_bwrap",
+      "name": "bwrap 沙箱执行",
+      "layer": "runner",
+      "user_path": "任务运行时 ps 里应看到 bwrap 包着 R/Python",
+      "verify": {
+        "kind": "cli",
+        "cmd": "command -v bwrap",
+        "expect": "re:^/.*bwrap$"
+      },
+      "depends_on": [],
+      "nodes": {
+        "940": "ok",
+        "dayu": "ok"
+      },
+      "known_limits": [
+        "两边都装了 bwrap 0.4.0；大禹有 bwrap 但 0 worker，等于没有执行面"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§7.2"
+      ]
+    },
+    {
+      "id": "runner.queue_pending",
+      "name": "队列无积压（pending 应为 0）",
+      "layer": "runner",
+      "user_path": "历史任务页看不到「排队中」",
+      "verify": {
+        "kind": "cli",
+        "cmd": "python3 -c \"import sqlite3;c=sqlite3.connect('file:/data3/biomamba/analysis/DS_App/data/dsapp.sqlite3?mode=ro',uri=True,timeout=10);print(c.execute('select count(*) from v18_jobs where status=?',('pending',)).fetchone()[0])\"",
+        "expect": "0"
+      },
+      "depends_on": [
+        "runner.workers"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "ok"
+      },
+      "known_limits": [
+        "两边库同源，pending 均为 0；大禹一旦接管且无 worker，这里会持续上涨"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§6"
+      ]
+    },
+    {
+      "id": "runner.cancel",
+      "name": "任务取消",
+      "layer": "runner",
+      "user_path": "运行中的任务点「取消」",
+      "verify": {
+        "kind": "cli",
+        "cmd": "python3 -c \"import sqlite3;c=sqlite3.connect('file:/data3/biomamba/analysis/DS_App/data/dsapp.sqlite3?mode=ro',uri=True,timeout=10);print(c.execute('select count(*) from v18_jobs where status=?',('canceled',)).fetchone()[0])\"",
+        "expect": "re:^[1-9][0-9]*$"
+      },
+      "depends_on": [
+        "runner.workers"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "只能证明历史上有成功取消（实测 6 条）；本次未真跑任务"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§7.1"
+      ]
+    },
+    {
+      "id": "runner.oom",
+      "name": "OOM / 资源不足友好提示",
+      "layer": "runner",
+      "user_path": "跑一个吃内存的任务",
+      "verify": {
+        "kind": "ui",
+        "cmd": "",
+        "expect": "人工确认"
+      },
+      "depends_on": [
+        "runner.workers"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "kind=ui：需要登录态或点击操作，自动检查只标 MANUAL，必须人工确认"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§7.1"
+      ]
+    },
+    {
+      "id": "runner.file_limit",
+      "name": "单文件写入上限 64 GiB",
+      "layer": "runner",
+      "user_path": "往工作区写一个 >2GiB 的文件",
+      "verify": {
+        "kind": "ui",
+        "cmd": "",
+        "expect": "人工确认"
+      },
+      "depends_on": [
+        "runner.workers"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "kind=ui：需要登录态或点击操作，自动检查只标 MANUAL，必须人工确认",
+        "V21.48/g258 把 2 GiB 抬到 64 GiB，DSAPP_MAX_FILE_GB 可配",
+        "本项只能人工跑大文件；env 在 root-only 文件里，脚本读不到"
+      ],
+      "since": "V21.48",
+      "req_refs": [
+        "2026-11-19-#17"
+      ]
+    },
+    {
+      "id": "runner.timeout",
+      "name": "任务超时策略（默认不限时）",
+      "layer": "runner",
+      "user_path": "跑长任务，观察是否被杀",
+      "verify": {
+        "kind": "ui",
+        "cmd": "",
+        "expect": "人工确认"
+      },
+      "depends_on": [
+        "runner.workers"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "kind=ui：需要登录态或点击操作，自动检查只标 MANUAL，必须人工确认",
+        "940 worker 的 DSAPP_V18_TASK_TIMEOUT=0（不限时）"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§7.1"
+      ]
+    },
+    {
+      "id": "runner.task_timeout_env",
+      "name": "worker 环境变量生效（含 TASK_TIMEOUT）",
+      "layer": "runner",
+      "user_path": "systemctl show worker@1",
+      "verify": {
+        "kind": "cli",
+        "cmd": "systemctl show -p Environment dsapp-v18-worker@1 | grep -c DSAPP_V18_TASK_TIMEOUT",
+        "expect": "1"
+      },
+      "depends_on": [
+        "runner.worker_alive"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "missing"
+      },
+      "known_limits": [
+        "大禹无 worker 实例，这条必红"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§7.1"
+      ]
+    },
+    {
+      "id": "runner.jobs_list",
+      "name": "历史任务页数据接口",
+      "layer": "runner",
+      "user_path": "左侧「历史任务」",
+      "verify": {
+        "kind": "http",
+        "cmd": "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:34039/YCFS_APP/api/job",
+        "expect": "401"
+      },
+      "depends_on": [
+        "web.login"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "ok"
+      },
+      "known_limits": [
+        "401=路由存在；列表内容需登录态"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§六"
+      ]
+    },
+    {
+      "id": "runner.envs",
+      "name": "运行环境管理（envs）",
+      "layer": "runner",
+      "user_path": "左侧「环境」",
+      "verify": {
+        "kind": "ui",
+        "cmd": "",
+        "expect": "人工确认"
+      },
+      "depends_on": [
+        "web.login"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "missing"
+      },
+      "known_limits": [
+        "kind=ui：需要登录态或点击操作，自动检查只标 MANUAL，必须人工确认",
+        "940 的 envs 32GB/64.9 万文件；大禹侧未同步完（补齐清单 §4）"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§7"
+      ]
+    },
+    {
+      "id": "transfer.upload_34080",
+      "name": "直传上传端点（34080，HTTPS）",
+      "layer": "transfer",
+      "user_path": "传大文件/技能包/云工具（绕过官网 edge）",
+      "verify": {
+        "kind": "http",
+        "cmd": "curl -s -k -o /dev/null -w '%{http_code}' -X POST -H 'Host: ycfs-files.biomamba.cn' https://127.0.0.1:34080/transfer/upload",
+        "expect": "401"
+      },
+      "depends_on": [],
+      "nodes": {
+        "940": "ok",
+        "dayu": "missing"
+      },
+      "known_limits": [
+        "401=端点活着（invalid transfer，缺 token）；真实上传需登录态",
+        "大禹无 34080 监听、无 /transfer 路由（实测 404/refused）",
+        "域名 ycfs-files.biomamba.cn CNAME→940；切到大禹后直传 100% 失败且闸门查不出"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "2026-11-20-#4"
+      ]
+    },
+    {
+      "id": "transfer.read",
+      "name": "直传读取端点",
+      "layer": "transfer",
+      "user_path": "直传方式下载/读取文件",
+      "verify": {
+        "kind": "http",
+        "cmd": "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:34039/YCFS_APP/transfer/read",
+        "expect": "401"
+      },
+      "depends_on": [],
+      "nodes": {
+        "940": "ok",
+        "dayu": "missing"
+      },
+      "known_limits": [
+        "401=路由存在；大禹 /transfer/read → 404（实测）"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "2026-11-20-#4"
+      ]
+    },
+    {
+      "id": "transfer.grant",
+      "name": "直传授权（grant）",
+      "layer": "transfer",
+      "user_path": "任意上传前平台发的临时授权",
+      "verify": {
+        "kind": "http",
+        "cmd": "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:34039/YCFS_APP/api/transfer/grant",
+        "expect": "405"
+      },
+      "depends_on": [
+        "web.login"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "405=路由存在；大禹未单独探测"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§5.1"
+      ]
+    },
+    {
+      "id": "transfer.files",
+      "name": "普通文件列表/上传接口",
+      "layer": "transfer",
+      "user_path": "文件面板上传",
+      "verify": {
+        "kind": "http",
+        "cmd": "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:34039/YCFS_APP/api/files",
+        "expect": "401"
+      },
+      "depends_on": [
+        "web.login"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "ok"
+      },
+      "known_limits": [
+        "401=路由存在；大禹虽有该路由，但没有直传通道，大文件会失败"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§5.1"
+      ]
+    },
+    {
+      "id": "transfer.cloudtool",
+      "name": "云工具包上传",
+      "layer": "transfer",
+      "user_path": "云工具 → 上传",
+      "verify": {
+        "kind": "http",
+        "cmd": "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:34039/YCFS_APP/api/cloudtool",
+        "expect": "405"
+      },
+      "depends_on": [
+        "web.login"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "ok"
+      },
+      "known_limits": [
+        "405=路由存在"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§十一"
+      ]
+    },
+    {
+      "id": "transfer.skills",
+      "name": "技能包上传/文件接口",
+      "layer": "transfer",
+      "user_path": "技能 → 上传技能",
+      "verify": {
+        "kind": "http",
+        "cmd": "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:34039/YCFS_APP/api/skills/files",
+        "expect": "409"
+      },
+      "depends_on": [
+        "web.login"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "ok"
+      },
+      "known_limits": [
+        "409=路由存在（冲突语义）；实际上传需登录态"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "2026-11-17-#4",
+        "2026-11-17-#5"
+      ]
+    },
+    {
+      "id": "transfer.avatar",
+      "name": "头像上传",
+      "layer": "transfer",
+      "user_path": "个人中心 → 换头像",
+      "verify": {
+        "kind": "ui",
+        "cmd": "",
+        "expect": "人工确认"
+      },
+      "depends_on": [
+        "transfer.upload_34080"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "missing"
+      },
+      "known_limits": [
+        "kind=ui：需要登录态或点击操作，自动检查只标 MANUAL，必须人工确认",
+        "/api/avatar 属 isTransferWrite 写通道"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§2.3"
+      ]
+    },
+    {
+      "id": "transfer.recording",
+      "name": "录音上传（长按说话）",
+      "layer": "transfer",
+      "user_path": "输入框麦克风 → 录音 → 发送",
+      "verify": {
+        "kind": "ui",
+        "cmd": "",
+        "expect": "人工确认"
+      },
+      "depends_on": [
+        "transfer.upload_34080",
+        "audio.asr"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "missing"
+      },
+      "known_limits": [
+        "kind=ui：需要登录态或点击操作，自动检查只标 MANUAL，必须人工确认"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§4.4"
+      ]
+    },
+    {
+      "id": "transfer.http_retired",
+      "name": "34080 明文入口已退役（HTTP 410）",
+      "layer": "transfer",
+      "user_path": "浏览器访问 http://ycfs-files...:34080/",
+      "verify": {
+        "kind": "http",
+        "cmd": "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:34080/",
+        "expect": "410"
+      },
+      "depends_on": [],
+      "nodes": {
+        "940": "ok",
+        "dayu": "missing"
+      },
+      "known_limits": [
+        "410 是 nginx 的「APP entry retired」页；明文入口有意关掉，只留 HTTPS",
+        "大禹无该端口"
+      ],
+      "since": "V21.5x",
+      "req_refs": [
+        "2026-11-20-#4"
+      ]
+    },
+    {
+      "id": "transfer.dns",
+      "name": "直传域名解析",
+      "layer": "transfer",
+      "user_path": "getent hosts ycfs-files.biomamba.cn",
+      "verify": {
+        "kind": "cli",
+        "cmd": "getent hosts ycfs-files.biomamba.cn | awk '{print $1}'",
+        "expect": "re:^[0-9.]+$"
+      },
+      "depends_on": [],
+      "nodes": {
+        "940": "ok",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "实测解析到 119.62.67.134（sw2-primary1，即 940 本机）；这是「切到大禹必坏」的根"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "2026-11-20-#4"
+      ]
+    },
+    {
+      "id": "jupyter.route",
+      "name": "会话内 Jupyter 路由（/jupyter/s/{sid}/）",
+      "layer": "jupyter",
+      "user_path": "代码者模式 → 打开 Jupyter",
+      "verify": {
+        "kind": "http",
+        "cmd": "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:34039/YCFS_APP/jupyter/s/test/",
+        "expect": "303"
+      },
+      "depends_on": [
+        "web.login"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "missing"
+      },
+      "known_limits": [
+        "303=路由存在（未登录被打回 /login）；真实打开需登录态",
+        "大禹 V21.51 该路由 404（实测）——这是切换后最直观的功能丢失"
+      ],
+      "since": "V21.52",
+      "req_refs": [
+        "2026-11-21-#2"
+      ]
+    },
+    {
+      "id": "jupyter.lab",
+      "name": "原生 JupyterLab（lab 子命令）",
+      "layer": "jupyter",
+      "user_path": "打开 Jupyter → 应是 JupyterLab 界面，不是裸 server 落地页",
+      "verify": {
+        "kind": "cli",
+        "cmd": "pgrep -af '[j]upyter lab' | wc -l",
+        "expect": "re:^[1-9][0-9]*$"
+      },
+      "depends_on": [
+        "jupyter.route"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "missing"
+      },
+      "known_limits": [
+        "V21.52 用 server（裸落地页），V21.53 改 lab + jupyterHasLab 探测兜底",
+        "换 jupyter 安装后需重启 dsapp 才会重新探测"
+      ],
+      "since": "V21.53",
+      "req_refs": [
+        "2026-11-21-#2"
+      ]
+    },
+    {
+      "id": "jupyter.sandbox",
+      "name": "Jupyter 跑在 bwrap 沙箱内",
+      "layer": "jupyter",
+      "user_path": "打开 Jupyter 后 ps 里应有 bwrap 包着 jupyter",
+      "verify": {
+        "kind": "cli",
+        "cmd": "pgrep -af '[b]wrap.*jupyter' | wc -l",
+        "expect": "re:^[1-9][0-9]*$"
+      },
+      "depends_on": [
+        "jupyter.lab"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "missing"
+      },
+      "known_limits": [
+        "只挂工作区 + 用户 files 只读 + envs 只读；/tmp 与 HOME 落在会话目录"
+      ],
+      "since": "V21.52",
+      "req_refs": [
+        "2026-11-21-#2"
+      ]
+    },
+    {
+      "id": "jupyter.quota",
+      "name": "每用户实例配额（超限 429）",
+      "layer": "jupyter",
+      "user_path": "同一账号开第 N 个 Jupyter",
+      "verify": {
+        "kind": "ui",
+        "cmd": "",
+        "expect": "人工确认"
+      },
+      "depends_on": [
+        "jupyter.route"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "missing"
+      },
+      "known_limits": [
+        "kind=ui：需要登录态或点击操作，自动检查只标 MANUAL，必须人工确认",
+        "DSAPP_JUPYTER_MAX_PER_USER；单测 TestJupyterSessionQuota429 覆盖"
+      ],
+      "since": "V21.52",
+      "req_refs": [
+        "2026-11-21-#2"
+      ]
+    },
+    {
+      "id": "jupyter.idle_reclaim",
+      "name": "空闲实例回收",
+      "layer": "jupyter",
+      "user_path": "打开 Jupyter 后放着不动，观察进程是否被回收",
+      "verify": {
+        "kind": "ui",
+        "cmd": "",
+        "expect": "人工确认"
+      },
+      "depends_on": [
+        "jupyter.route"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "missing"
+      },
+      "known_limits": [
+        "kind=ui：需要登录态或点击操作，自动检查只标 MANUAL，必须人工确认",
+        "DSAPP_JUPYTER_IDLE_SEC；默认总开关 DSAPP_JUPYTER=false"
+      ],
+      "since": "V21.52",
+      "req_refs": [
+        "2026-11-21-#2"
+      ]
+    },
+    {
+      "id": "jupyter.legacy_open",
+      "name": "旧版 Jupyter 打开入口（/jupyter/open）",
+      "layer": "jupyter",
+      "user_path": "产物卡片旧按钮",
+      "verify": {
+        "kind": "http",
+        "cmd": "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:34039/YCFS_APP/jupyter/open",
+        "expect": "405"
+      },
+      "depends_on": [
+        "web.login"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "405=路由存在；V21.52 保留了旧 /jupyter/notebook、/jupyter/open"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§4.3"
+      ]
+    },
+    {
+      "id": "jupyter.preview_btn",
+      "name": "预览页「在 Jupyter 打开」按钮",
+      "layer": "jupyter",
+      "user_path": "预览 notebook 产物 → 点按钮",
+      "verify": {
+        "kind": "ui",
+        "cmd": "",
+        "expect": "人工确认"
+      },
+      "depends_on": [
+        "jupyter.route"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "missing"
+      },
+      "known_limits": [
+        "kind=ui：需要登录态或点击操作，自动检查只标 MANUAL，必须人工确认"
+      ],
+      "since": "V21.52",
+      "req_refs": [
+        "2026-11-21-#2"
+      ]
+    },
+    {
+      "id": "audio.service",
+      "name": "语音服务进程（ASR/TTS）",
+      "layer": "audio",
+      "user_path": "点朗读/录音不应报错",
+      "verify": {
+        "kind": "cli",
+        "cmd": "systemctl is-active dsapp-v18-speech",
+        "expect": "active"
+      },
+      "depends_on": [],
+      "nodes": {
+        "940": "ok",
+        "dayu": "missing"
+      },
+      "known_limits": [
+        "unit active 只代表进程活着，不代表识别/播报可用（2026-11-17 事故的教训）",
+        "大禹完全没有该服务（未安装）"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "2026-11-17-#7"
+      ]
+    },
+    {
+      "id": "audio.port",
+      "name": "语音服务端口 34294",
+      "layer": "audio",
+      "user_path": "同上",
+      "verify": {
+        "kind": "cli",
+        "cmd": "ss -lnt | grep -c ':34294'",
+        "expect": "1"
+      },
+      "depends_on": [
+        "audio.service"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "missing"
+      },
+      "known_limits": [
+        "34294 只监听 127.0.0.1；健康检查需要 key（无 key 返回 401）"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "2026-11-17-#7"
+      ]
+    },
+    {
+      "id": "audio.asr",
+      "name": "ASR 语音转写接口",
+      "layer": "audio",
+      "user_path": "录音 → 转文字",
+      "verify": {
+        "kind": "http",
+        "cmd": "curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:34039/YCFS_APP/api/voice/asr",
+        "expect": "409"
+      },
+      "depends_on": [
+        "audio.service"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "missing"
+      },
+      "known_limits": [
+        "409=路由存在但缺授权/参数；真实转写需登录态",
+        "大禹无语音服务，点击必失败"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "2026-11-17-#7"
+      ]
+    },
+    {
+      "id": "audio.tts",
+      "name": "TTS 朗读接口",
+      "layer": "audio",
+      "user_path": "回复 → 朗读",
+      "verify": {
+        "kind": "http",
+        "cmd": "curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:34039/YCFS_APP/api/voice/tts",
+        "expect": "409"
+      },
+      "depends_on": [
+        "audio.service"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "missing"
+      },
+      "known_limits": [
+        "409=路由存在但缺授权",
+        "本机 MOSS 为默认引擎，云档是可选降级"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "2026-11-17-#7"
+      ]
+    },
+    {
+      "id": "audio.availability",
+      "name": "语音能力查询接口",
+      "layer": "audio",
+      "user_path": "语音面板显示可用能力",
+      "verify": {
+        "kind": "http",
+        "cmd": "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:34039/YCFS_APP/api/voice/availability",
+        "expect": "401"
+      },
+      "depends_on": [
+        "web.login"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "degraded"
+      },
+      "known_limits": [
+        "401=路由存在；大禹路由在但无 34294，能力必然是 false"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "2026-11-17-#7"
+      ]
+    },
+    {
+      "id": "audio.moss",
+      "name": "本机 MOSS TTS 引擎",
+      "layer": "audio",
+      "user_path": "朗读音色是否正常",
+      "verify": {
+        "kind": "ui",
+        "cmd": "",
+        "expect": "人工确认"
+      },
+      "depends_on": [
+        "audio.tts"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "missing"
+      },
+      "known_limits": [
+        "kind=ui：需要登录态或点击操作，自动检查只标 MANUAL，必须人工确认",
+        "runtime 约 5.8G 必需（models 4.2G + moss-nano 728M + venv-fast 136M）"
+      ],
+      "since": "V21.47",
+      "req_refs": [
+        "2026-11-17-#7"
+      ]
+    },
+    {
+      "id": "audio.cloud_fallback",
+      "name": "云端 TTS 降级",
+      "layer": "audio",
+      "user_path": "切到云 TTS 看是否能播",
+      "verify": {
+        "kind": "ui",
+        "cmd": "",
+        "expect": "人工确认"
+      },
+      "depends_on": [
+        "audio.tts"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "missing"
+      },
+      "known_limits": [
+        "kind=ui：需要登录态或点击操作，自动检查只标 MANUAL，必须人工确认",
+        "edge-tts 云档是止血方案，本机 MOSS 保底"
+      ],
+      "since": "V21.47",
+      "req_refs": [
+        "2026-11-17-#7"
+      ]
+    },
+    {
+      "id": "admin.users",
+      "name": "用户管理（列表/角色/禁用）",
+      "layer": "admin",
+      "user_path": "管理员 → 用户管理",
+      "verify": {
+        "kind": "ui",
+        "cmd": "",
+        "expect": "人工确认"
+      },
+      "depends_on": [
+        "web.login"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "kind=ui：需要登录态或点击操作，自动检查只标 MANUAL，必须人工确认",
+        "线上 615 用户"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§十二"
+      ]
+    },
+    {
+      "id": "admin.dashboard",
+      "name": "管理后台入口/总览",
+      "layer": "admin",
+      "user_path": "左侧「管理」",
+      "verify": {
+        "kind": "http",
+        "cmd": "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:34039/YCFS_APP/api/admin",
+        "expect": "405"
+      },
+      "depends_on": [
+        "web.login"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "ok"
+      },
+      "known_limits": [
+        "405=入口存在；分页内容需管理员登录态"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§十二"
+      ]
+    },
+    {
+      "id": "admin.usage",
+      "name": "渠道用量看板",
+      "layer": "admin",
+      "user_path": "管理员 → 渠道用量",
+      "verify": {
+        "kind": "http",
+        "cmd": "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:34039/YCFS_APP/api/admin/channel-usage",
+        "expect": "401"
+      },
+      "depends_on": [
+        "model.channels"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "ok"
+      },
+      "known_limits": [
+        "401=路由存在；看板内容需管理员登录态",
+        "2026-11-21-#1：18 号以后的 token 用量在面板看不到（V21.55/g266 已构建未部署）"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "2026-11-21-#1"
+      ]
+    },
+    {
+      "id": "admin.cash",
+      "name": "渠道账单 / 费用看板",
+      "layer": "admin",
+      "user_path": "管理员 → 渠道账单",
+      "verify": {
+        "kind": "http",
+        "cmd": "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:34039/YCFS_APP/api/admin/channel-cash",
+        "expect": "401"
+      },
+      "depends_on": [
+        "model.channels"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "ok"
+      },
+      "known_limits": [
+        "401=路由存在；账单口径需管理员确认"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§十二"
+      ]
+    },
+    {
+      "id": "admin.notifications",
+      "name": "告警/事件通知台",
+      "layer": "admin",
+      "user_path": "管理员 → 通知",
+      "verify": {
+        "kind": "http",
+        "cmd": "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:34039/YCFS_APP/api/admin/notifications",
+        "expect": "401"
+      },
+      "depends_on": [
+        "web.login"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "ok"
+      },
+      "known_limits": [
+        "401=路由存在"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§十二"
+      ]
+    },
+    {
+      "id": "admin.support",
+      "name": "客服 QA 支持",
+      "layer": "admin",
+      "user_path": "管理员 → 客服 QA",
+      "verify": {
+        "kind": "http",
+        "cmd": "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:34039/YCFS_APP/api/admin/support-qa",
+        "expect": "401"
+      },
+      "depends_on": [
+        "web.login"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "ok"
+      },
+      "known_limits": [
+        "401=路由存在"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§十二"
+      ]
+    },
+    {
+      "id": "admin.email",
+      "name": "邮件支持（发信/模板）",
+      "layer": "admin",
+      "user_path": "管理员 → 邮件支持",
+      "verify": {
+        "kind": "http",
+        "cmd": "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:34039/YCFS_APP/api/admin/email-support",
+        "expect": "401"
+      },
+      "depends_on": [
+        "ops.smtp_config"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "ok"
+      },
+      "known_limits": [
+        "401=路由存在；大禹 SMTP 未配置，实际发信不可用"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§十二"
+      ]
+    },
+    {
+      "id": "admin.teams",
+      "name": "团队 / 权限管理",
+      "layer": "admin",
+      "user_path": "管理员 → 团队",
+      "verify": {
+        "kind": "http",
+        "cmd": "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:34039/YCFS_APP/api/admin/teams",
+        "expect": "405"
+      },
+      "depends_on": [
+        "web.login"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "ok"
+      },
+      "known_limits": [
+        "405=路由存在"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§2.2"
+      ]
+    },
+    {
+      "id": "admin.audit",
+      "name": "操作/变更审计留痕",
+      "layer": "admin",
+      "user_path": "管理员 → 审计",
+      "verify": {
+        "kind": "cli",
+        "cmd": "python3 -c \"import sqlite3;c=sqlite3.connect('file:/data3/biomamba/analysis/DS_App/data/dsapp.sqlite3?mode=ro',uri=True,timeout=10);print(c.execute('select count(*) from v18_bit_audit').fetchone()[0])\"",
+        "expect": "re:^[1-9][0-9]*$"
+      },
+      "depends_on": [
+        "admin.dashboard"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "只证明审计表有记录（实测 991 条）；页面呈现需管理员登录态"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V18.5-台账§十二"
+      ]
+    },
+    {
+      "id": "ops.gateway",
+      "name": "hot-gateway 在跑（127.0.0.1:34039）",
+      "layer": "ops",
+      "user_path": "curl 127.0.0.1:34039/YCFS_APP/healthz",
+      "verify": {
+        "kind": "cli",
+        "cmd": "pgrep -f '[h]ot-gateway --listen' | wc -l",
+        "expect": "1"
+      },
+      "depends_on": [],
+      "nodes": {
+        "940": "ok",
+        "dayu": "missing"
+      },
+      "known_limits": [
+        "大禹是单目录 app，没有 hot-gateway / catalog（切主后发版变「停服重启」）"
+      ],
+      "since": "V21.45",
+      "req_refs": [
+        "V21.45-热升级"
+      ]
+    },
+    {
+      "id": "ops.catalog_current",
+      "name": "catalog.current 指向当前代",
+      "layer": "ops",
+      "user_path": "读 catalog.json 的 current",
+      "verify": {
+        "kind": "cli",
+        "cmd": "python3 -c \"import json;d=json.load(open('/run/ycfs-unit-health/status.json'));print(d['hot_web']['current'])\"",
+        "expect": "re:^g[0-9]+$"
+      },
+      "depends_on": [
+        "ops.gateway"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "missing"
+      },
+      "known_limits": [
+        "catalog.json 是 root:shiny 0750，非 root 读不到；这里用监控 status.json 里解析出的同一值",
+        "实测 current=g264（Test V21.53）"
+      ],
+      "since": "V21.45",
+      "req_refs": [
+        "V21.45-热升级"
+      ]
+    },
+    {
+      "id": "ops.generations",
+      "name": "多代目录并存（可秒回滚）",
+      "layer": "ops",
+      "user_path": "ls generations/",
+      "verify": {
+        "kind": "cli",
+        "cmd": "ls -1 /var/lib/ycfs-hot-ui-followup-20261117/generations | grep -c '^g[0-9]'",
+        "expect": "re:^([2-9]|[1-9][0-9]+)$"
+      },
+      "depends_on": [
+        "ops.gateway"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "missing"
+      },
+      "known_limits": [
+        "实测 g255..g264 共 10 代；catalog.backends 上限 8，满了要先 retire"
+      ],
+      "since": "V21.45",
+      "req_refs": [
+        "V21.45-热升级"
+      ]
+    },
+    {
+      "id": "ops.hot_retire",
+      "name": "旧代退休定时器",
+      "layer": "ops",
+      "user_path": "systemctl status ycfs-hot-retire.timer",
+      "verify": {
+        "kind": "cli",
+        "cmd": "systemctl is-active ycfs-hot-retire.timer",
+        "expect": "active"
+      },
+      "depends_on": [
+        "ops.generations"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "missing"
+      },
+      "known_limits": [],
+      "since": "V21.45",
+      "req_refs": [
+        "V21.45-热升级"
+      ]
+    },
+    {
+      "id": "ops.unit_health",
+      "name": "17 单元健康监控 timer",
+      "layer": "ops",
+      "user_path": "systemctl status ycfs-unit-health.timer",
+      "verify": {
+        "kind": "cli",
+        "cmd": "systemctl is-active ycfs-unit-health.timer",
+        "expect": "active"
+      },
+      "depends_on": [],
+      "nodes": {
+        "940": "ok",
+        "dayu": "missing"
+      },
+      "known_limits": [
+        "大禹没有任何 YCFS 监控 timer"
+      ],
+      "since": "V21.45",
+      "req_refs": [
+        "2026-11-17-#6"
+      ]
+    },
+    {
+      "id": "ops.unit_health_status",
+      "name": "监控结果 17/17 active",
+      "layer": "ops",
+      "user_path": "cat /run/ycfs-unit-health/status.json",
+      "verify": {
+        "kind": "cli",
+        "cmd": "python3 -c \"import json;print(json.load(open('/run/ycfs-unit-health/status.json'))['summary'])\"",
+        "expect": "re:^OK 17/17 active$"
+      },
+      "depends_on": [
+        "ops.unit_health"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "missing"
+      },
+      "known_limits": [
+        "监控只认 ConditionPathExists=!<path> 这种 fence；别的条件会被报成故障"
+      ],
+      "since": "V21.45",
+      "req_refs": [
+        "2026-11-17-#6"
+      ]
+    },
+    {
+      "id": "ops.healthz_json",
+      "name": "healthz JSON（asset_version）",
+      "layer": "ops",
+      "user_path": "curl '127.0.0.1:34039/YCFS_APP/healthz?format=json'",
+      "verify": {
+        "kind": "http",
+        "cmd": "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:34039/YCFS_APP/healthz?format=json",
+        "expect": "200"
+      },
+      "depends_on": [],
+      "nodes": {
+        "940": "ok",
+        "dayu": "ok"
+      },
+      "known_limits": [
+        "正文必须仍是 ok\\n；JSON 只多了 asset_version",
+        "asset_version 是资产版本不是二进制版本；940=V21.48，大禹=V21.47"
+      ],
+      "since": "V21.47",
+      "req_refs": [
+        "2026-11-18-#12"
+      ]
+    },
+    {
+      "id": "ops.public_entry",
+      "name": "公网入口 200（经官网 nginx）",
+      "layer": "ops",
+      "user_path": "curl https://www.biomamba.cn/YCFS_APP/healthz",
+      "verify": {
+        "kind": "http",
+        "cmd": "curl -s -o /dev/null -w '%{http_code}' https://www.biomamba.cn/YCFS_APP/healthz",
+        "expect": "200"
+      },
+      "depends_on": [
+        "ops.gateway"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "这条同时验证官网机 nginx + 隧道；实测 X-Ycfs-Version: Test V21.53"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V21.45-热升级"
+      ]
+    },
+    {
+      "id": "ops.version_header",
+      "name": "响应头 X-Ycfs-Version 存在",
+      "layer": "ops",
+      "user_path": "curl -I /healthz",
+      "verify": {
+        "kind": "cli",
+        "cmd": "curl -sS -D- -o /dev/null http://127.0.0.1:34039/YCFS_APP/healthz | grep -ic 'x-ycfs-version'",
+        "expect": "1"
+      },
+      "depends_on": [
+        "ops.gateway"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "ok"
+      },
+      "known_limits": [
+        "只验头存在，不锁版本号（每次发布都会变）"
+      ],
+      "since": "V21.45",
+      "req_refs": [
+        "V21.45-热升级"
+      ]
+    },
+    {
+      "id": "ops.readonly_fence_primary",
+      "name": "主位写栅栏=0（可写）",
+      "layer": "ops",
+      "user_path": "cat <data>/.ycfs-read-only",
+      "verify": {
+        "kind": "cli",
+        "cmd": "cat /data3/biomamba/analysis/DS_App/data/.ycfs-read-only",
+        "expect": "0"
+      },
+      "depends_on": [],
+      "nodes": {
+        "940": "ok",
+        "dayu": "ok"
+      },
+      "known_limits": [
+        "主位应为 0；备机应为 1。大禹另有 .ycfs-read-only-runtime 标记（V21.51 起）",
+        "三个只读来源：DSAPP_READ_ONLY env / AppDir 文件 / DataRoot runtime 文件"
+      ],
+      "since": "V21.50",
+      "req_refs": [
+        "2026-11-20-#5",
+        "2026-11-20-#8"
+      ]
+    },
+    {
+      "id": "ops.switch_script",
+      "name": "一键切换脚本已安装（/usr/local/sbin/ycfs-switch.sh）",
+      "layer": "ops",
+      "user_path": "sudo ycfs-switch.sh status",
+      "verify": {
+        "kind": "cli",
+        "cmd": "test -x /usr/local/sbin/ycfs-switch.sh && echo present || echo absent",
+        "expect": "present"
+      },
+      "depends_on": [],
+      "nodes": {
+        "940": "missing",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "2026-11-21 实测：940 上只有 ycfs-db-sync.sh 与 ycfs-unit-health.sh，切换脚本仍未安装",
+        "该脚本属于官网机（root）；这份自检在 940 上跑必然 absent"
+      ],
+      "since": "V21.50",
+      "req_refs": [
+        "2026-11-20-#9"
+      ]
+    },
+    {
+      "id": "ops.switch_gate",
+      "name": "切换闸门五道（G1..G5）",
+      "layer": "ops",
+      "user_path": "sudo ycfs-switch.sh check to-dayu",
+      "verify": {
+        "kind": "ui",
+        "cmd": "",
+        "expect": "人工确认"
+      },
+      "depends_on": [
+        "ops.switch_script",
+        "ops.db_sync_lag"
+      ],
+      "nodes": {
+        "940": "unknown",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "kind=ui：需要登录态或点击操作，自动检查只标 MANUAL，必须人工确认",
+        "G1 写栅栏 / G2 零滞后 / G3 库完整性 / G4 探针 / G5 目标健康；退出码 4/8/5/6/7",
+        "G2 是唯一可 --force 跳过的；SSH 读不到等一律不可跳过"
+      ],
+      "since": "V21.50",
+      "req_refs": [
+        "2026-11-20-#5",
+        "2026-11-20-#9"
+      ]
+    },
+    {
+      "id": "ops.db_sync",
+      "name": "DB 定时同步 timer（10 分钟）",
+      "layer": "ops",
+      "user_path": "systemctl status ycfs-dr-sync-db.timer",
+      "verify": {
+        "kind": "cli",
+        "cmd": "systemctl is-active ycfs-dr-sync-db.timer",
+        "expect": "active"
+      },
+      "depends_on": [],
+      "nodes": {
+        "940": "ok",
+        "dayu": "missing"
+      },
+      "known_limits": [
+        "大禹侧没有 timer/conf，同步由 940 单向推"
+      ],
+      "since": "V21.49",
+      "req_refs": [
+        "2026-11-19-#15"
+      ]
+    },
+    {
+      "id": "ops.db_sync_lag",
+      "name": "DB 同步滞后 < 900s",
+      "layer": "ops",
+      "user_path": "cat /run/ycfs-dr-sync/status.json",
+      "verify": {
+        "kind": "cli",
+        "cmd": "python3 -c \"import json;d=json.load(open('/run/ycfs-dr-sync/status.json'));print('ok' if d['lag_seconds']<900 else 'lag')\"",
+        "expect": "ok"
+      },
+      "depends_on": [
+        "ops.db_sync"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "实测 lag_seconds=0，两边三表 615/359/7809 完全一致"
+      ],
+      "since": "V21.49",
+      "req_refs": [
+        "2026-11-19-#15"
+      ]
+    },
+    {
+      "id": "ops.dr_version_follow",
+      "name": "备机版本跟随（drift=0）",
+      "layer": "ops",
+      "user_path": "看 status.json 的 version 任务",
+      "verify": {
+        "kind": "cli",
+        "cmd": "python3 -c \"import json;d=json.load(open('/run/ycfs-dr-sync/status.json'));print('ok' if 'version ok' in (d.get('summary') or '') else 'bad')\"",
+        "expect": "ok"
+      },
+      "depends_on": [
+        "ops.db_sync"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "version ok 只代表同步脚本比对了二进制 sha；实测大禹程序仍 V21.51（比 940 旧 2 代）"
+      ],
+      "since": "V21.49",
+      "req_refs": [
+        "2026-11-19-#15"
+      ]
+    },
+    {
+      "id": "ops.files_sync",
+      "name": "文件/工作区定时同步",
+      "layer": "ops",
+      "user_path": "systemctl status ycfs-dr-sync-files.timer",
+      "verify": {
+        "kind": "cli",
+        "cmd": "systemctl is-active ycfs-dr-sync-files.timer",
+        "expect": "active"
+      },
+      "depends_on": [],
+      "nodes": {
+        "940": "missing",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "**已知真缺**：2026-11-21 实测 timer inactive，最后一次 2026-11-20 20:31:51 被 TERM（Result=signal/status=15），14h 未成功",
+        "后果：最近会话的文件在备机缺失，界面会「会话在、文件没了」"
+      ],
+      "since": "V21.49",
+      "req_refs": [
+        "2026-11-19-#15"
+      ]
+    },
+    {
+      "id": "ops.backup_cron",
+      "name": "数据库备份 cron（日备 + 4h 备）",
+      "layer": "ops",
+      "user_path": "crontab -l | grep ycfs_sqlite_backup",
+      "verify": {
+        "kind": "cli",
+        "cmd": "crontab -l | grep -c ycfs_sqlite_backup",
+        "expect": "re:^[1-9][0-9]*$"
+      },
+      "depends_on": [],
+      "nodes": {
+        "940": "ok",
+        "dayu": "missing"
+      },
+      "known_limits": [
+        "实测 2 条（每日 03:17 + 每 4 小时）+ backup_keys + check_backup",
+        "大禹 0 条 YCFS 备份任务 ⇒ 切过去没有恢复点"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V21.48-备份"
+      ]
+    },
+    {
+      "id": "ops.legacy_port",
+      "name": "历史对外端口 34038 已关闭",
+      "layer": "ops",
+      "user_path": "ss -lnt | grep 34038",
+      "verify": {
+        "kind": "cli",
+        "cmd": "ss -lnt | grep -c ':34038'",
+        "expect": "0"
+      },
+      "depends_on": [],
+      "nodes": {
+        "940": "missing",
+        "dayu": "ok"
+      },
+      "known_limits": [
+        "**已知真缺**：2026-11-21 实测 0.0.0.0:34038 仍在监听（返回 301）",
+        "归档 §7.1 建议核实后关闭；不在切换闸门与 17 单元监控覆盖内"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V21.48-端口"
+      ]
+    },
+    {
+      "id": "ops.disk",
+      "name": "/data3 水位 < 90%",
+      "layer": "ops",
+      "user_path": "df -h /data3",
+      "verify": {
+        "kind": "cli",
+        "cmd": "df -h /data3 | awk 'NR==2{print $5}'",
+        "expect": "re:^[0-8][0-9]%$"
+      },
+      "depends_on": [],
+      "nodes": {
+        "940": "ok",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "实测 89%（8.4T/10T），已接近闸门；报告转图要 Chromium、旧代目录会涨"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V21.48-容量"
+      ]
+    },
+    {
+      "id": "ops.smtp_config",
+      "name": "SMTP 已配置（注册/找回密码邮件）",
+      "layer": "ops",
+      "user_path": "grep -c '^DSAPP_SMTP_' conf/dsapp.env",
+      "verify": {
+        "kind": "cli",
+        "cmd": "grep -c '^DSAPP_SMTP_' /data3/biomamba/conf/dsapp.env",
+        "expect": "re:^[1-9][0-9]*$"
+      },
+      "depends_on": [],
+      "nodes": {
+        "940": "ok",
+        "dayu": "missing"
+      },
+      "known_limits": [
+        "实测 940 = 6 个 SMTP 键；大禹 conf/dsapp.env 为 0 字节（0 键）⇒ 发信静默失败",
+        "大禹路径：/home/biomamba_beifen/ycfs-deploy/conf/dsapp.env"
+      ],
+      "since": "V18.5",
+      "req_refs": [
+        "V21.48-SMTP"
+      ]
+    }
+  ]
+}
