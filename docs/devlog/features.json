@@ -1,14 +1,14 @@
 {
   "schema": "ycfs-features/1",
   "name": "YCFS_APP 全量功能清单",
-  "updated_at": "2026-11-21",
+  "updated_at": "2026-11-23",
   "base_url": "http://127.0.0.1:34039/YCFS_APP",
   "checked_on": {
     "host": "940 (sw2-primary1.xiyoucloud.pro)",
-    "binary_version": "Test V21.53",
-    "generation": "g264",
-    "asset_version": "V21.48",
-    "at": "2026-11-21T11:00:00+08:00"
+    "binary_version": "Test V21.58",
+    "generation": "g270",
+    "asset_version": "V21.51",
+    "at": "2026-11-23T10:35:00+08:00"
   },
   "how_to_check": {
     "http": "scripts/check_features.py --base http://127.0.0.1:34039/YCFS_APP",
@@ -17,7 +17,7 @@
     "expect": "数字=HTTP 状态码；a|b=任一即可；re:...=对 stdout 做正则匹配；其它=字符串相等"
   },
   "node_status_legend": {
-    "ok": "本轮（2026-11-21 11:00-11:05 CST）实测通过",
+    "ok": "最近一轮实测通过（2026-11-21 基线；状态有变化的条目已在 2026-11-23 复核）",
     "degraded": "功能和路由在，但有已知缺陷或处在只读/受限态",
     "missing": "本轮实测缺失（404/connection refused/unit 不存在/0 实例）",
     "unknown": "本轮未实测（需要登录态、管理员身份或会写库），不代表正常"
@@ -2458,12 +2458,14 @@
       },
       "depends_on": [],
       "nodes": {
-        "940": "missing",
+        "940": "ok",
         "dayu": "unknown"
       },
       "known_limits": [
-        "**已知真缺**：2026-11-21 实测 timer inactive，最后一次 2026-11-20 20:31:51 被 TERM（Result=signal/status=15），14h 未成功",
-        "后果：最近会话的文件在备机缺失，界面会「会话在、文件没了」"
+        "2026-11-23 09:43:54 定时器已恢复 active：此前手工 stop 后未恢复（最后一次尝试 2026-11-20 20:31:51 被 TERM，Result=signal/15），现在在补 2026-11-20 20:34 以来的工作区积压",
+        "首次补传积压可能耗时较长：2026-11-23 10:02 复核 service 仍在跑（started_at=09:43:55），status.json tasks.files.running=1；补传完成后要单独核对大禹侧最近工作区文件是否齐全",
+        "workspaces/envs 不做 --delete：同步只补传/覆盖，对端多出来的旧文件不会被自动删除",
+        "db 同步不受影响：ycfs-dr-sync-db.timer 每 10 分钟一轮、lag=0s，两侧行数一致"
       ],
       "since": "V21.49",
       "req_refs": [
@@ -2494,22 +2496,23 @@
     },
     {
       "id": "ops.legacy_port",
-      "name": "历史对外端口 34038 已关闭",
+      "name": "历史对外端口 34038 只做 301 跳转（不再代理应用）",
       "layer": "ops",
-      "user_path": "ss -lnt | grep 34038",
+      "user_path": "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:34038/",
       "verify": {
-        "kind": "cli",
-        "cmd": "ss -lnt | grep -c ':34038'",
-        "expect": "0"
+        "kind": "http",
+        "cmd": "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:34038/",
+        "expect": "301"
       },
       "depends_on": [],
       "nodes": {
-        "940": "missing",
+        "940": "ok",
         "dayu": "ok"
       },
       "known_limits": [
-        "**已知真缺**：2026-11-21 实测 0.0.0.0:34038 仍在监听（返回 301）",
-        "归档 §7.1 建议核实后关闭；不在切换闸门与 17 单元监控覆盖内"
+        "端口仍在监听 0.0.0.0:34038（没有关闭），但已不再 proxy_pass 应用：整站 301 到 https://www.biomamba.cn；/YCFS_APP 前缀会被剥掉、路径参数保留（/YCFS_APP/foo?x=1 → https://www.biomamba.cn/foo?x=1）",
+        "POST 也一样 301（含 /api/chat），明文请求体不再进入应用；2026-11-23 10:32 实测 GET / = 301、POST /api/chat = 301、Location 保留路径参数",
+        "仍在公网明文端口上响应 301，历史入口未彻底关闭；不在切换闸门与 17 单元监控覆盖内，要彻底关需改 34038 的 nginx server 块（root）"
       ],
       "since": "V18.5",
       "req_refs": []
@@ -2555,6 +2558,219 @@
         "大禹路径：/home/biomamba_beifen/ycfs-deploy/conf/dsapp.env"
       ],
       "since": "V18.5",
+      "req_refs": []
+    },
+    {
+      "id": "web.session_title_source",
+      "name": "会话标题来源 title_source（手动改名不再被首条消息覆盖）",
+      "layer": "web",
+      "user_path": "登录 → 新建会话 → 铅笔手动改名 → 再发首条消息，标题保持用户起的名字",
+      "verify": {
+        "kind": "cli",
+        "cmd": "python3 -c \"import sqlite3;c=sqlite3.connect('file:/data3/biomamba/analysis/DS_App/data/dsapp.sqlite3?mode=ro',uri=True,timeout=10);print('title_source' in [r[1] for r in c.execute('pragma table_info(sessions)')])\"",
+        "expect": "True"
+      },
+      "depends_on": [
+        "web.session_list"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "schema v144（2026-11-23 g269 迁移）：sessions.title_source TEXT NOT NULL DEFAULT 'auto'；自动命名改条件 UPDATE（只写 title_source='auto' 的行），用户铅笔改名记 user，文献速递/自动命名记 auto",
+        "2026-11-23 10:32 只读实测：v18_schema.version=144，title_source auto=369 / user=1；自动命名规则不变（首条消息前 24 个字），老数据统一补 auto",
+        "kind=cli 只验列存在；「手动改名后发首条消息标题不被覆盖」需要登录人工走一遍"
+      ],
+      "since": "V21.58",
+      "req_refs": [
+        "2026-11-21-#4",
+        "2026-11-22-#1"
+      ]
+    },
+    {
+      "id": "chat.notebook_full_render",
+      "name": "代码者模式 Notebook 面板整本渲染（326 单元一次列出可滚动）",
+      "layer": "chat",
+      "user_path": "代码者模式 → Notebook 面板：整本按顺序列出全部单元，每个单元一张卡片、可「打开到编辑器」",
+      "verify": {
+        "kind": "cli",
+        "cmd": "curl -s http://127.0.0.1:34039/YCFS_APP/static/chat.js | sha256sum | cut -c1-8",
+        "expect": "14374c2c"
+      },
+      "depends_on": [
+        "chat.coder_mode"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "资产判据：2026-11-23 10:32 复核 GET /static/chat.js 的 sha256 前缀=14374c2c（asset_version=V21.51 / g270）；若后续版本（如 g271 的登录 401 守卫）换掉 chat.js，sha 会变——届时以 /healthz?format=json 的 asset_version 为准，并退回人工验",
+        "整本一次列出、326 单元不把页面撑爆：面板高度 min(60vh, 100%-12rem)、单元列表内部滚动、DocumentFragment 一次插入",
+        "每个单元一张卡片（Cell N · code/markdown/raw），正文用 pre + textContent 原样显示源码（不拼 innerHTML）；保留「在 JupyterLab 打开」按钮"
+      ],
+      "since": "V21.57",
+      "req_refs": [
+        "2026-11-21-#6"
+      ]
+    },
+    {
+      "id": "chat.jupyterlab_entry",
+      "name": "代码者模式「在 JupyterLab 打开」按钮",
+      "layer": "chat",
+      "user_path": "代码者模式 → Notebook 面板 → 点「在 JupyterLab 打开」→ 进入当前会话的 JupyterLab（/jupyter/s/{sid}/lab）",
+      "verify": {
+        "kind": "http",
+        "cmd": "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:34039/YCFS_APP/jupyter/s/test/lab",
+        "expect": "303"
+      },
+      "depends_on": [
+        "chat.coder_mode",
+        "jupyter.route"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "missing"
+      },
+      "known_limits": [
+        "303=路由存在（未登录会被打回 /login）；真实点按钮进入 Lab 需登录人工验；2026-11-23 10:32 复核 /jupyter/s/test/lab=303，且 /static/chat.js 内含「在 JupyterLab 打开」文案",
+        "按钮按当前会话代理 /jupyter/s/{sid}/lab，sid 取点击那一刻的当前会话；Jupyter 关闭时按钮仍在，点击得 503 人话提示",
+        "大禹（备机）无 Jupyter 路由，切过去后该按钮会失败（V21.51 实测 /jupyter/s/test/ = 404）"
+      ],
+      "since": "V21.54",
+      "req_refs": [
+        "2026-11-21-#2"
+      ]
+    },
+    {
+      "id": "chat.login_expired_redirect",
+      "name": "接口 401 自动跳登录页（带 next 回跳）",
+      "layer": "chat",
+      "user_path": "登录态过期后触发任意接口（发消息/上传/报告分页）→ 先提示「登录已失效，正在跳转登录…」→ 300ms 后跳 <base>/login?next=<原路径>，登录成功 303 回原页",
+      "verify": {
+        "kind": "ui",
+        "cmd": "",
+        "expect": "人工确认"
+      },
+      "depends_on": [
+        "web.login",
+        "chat.streaming"
+      ],
+      "nodes": {
+        "940": "missing",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "需人工确认：2026-11-23 10:35 复核时该改动只在发布包里（g271，asset V21.52），线上 g270 仍是旧 chat.js，401 不会自动跳登录页；上线后验证：清 cookie/等会话过期，任意 /api 接口回 401 ⇒ 300ms 内被送到登录页，登录后回原深链",
+        "只认 401（403/500/网络错误不跳），只跳一次（模块级 flag 防成串 401），/login、/healthz、/static/ 与外域 401 豁免",
+        "后端不用改：页面请求本来就 303 → /login?next=…，api 请求 401；SSE（/api/stream）在 hot 网关层被拦成 410，要靠 1 秒一拍的 POST /api/chat 的 401 触发跳转",
+        "发布包原名 V21.60 资产包（chat.73662154.js，未单独部署），后合并进 g271 发布包（base V21.59 / asset V21.52，chat.js 含 dsapp-401-guard 段）"
+      ],
+      "since": "V21.60",
+      "req_refs": []
+    },
+    {
+      "id": "chat.message_delete",
+      "name": "会话消息删除（选中删除 + 失败必须看得见）",
+      "layer": "chat",
+      "user_path": "会话工具栏「选择消息」→ 勾选消息 → 删除；「等用户回答」时也可以直接删掉那条提问",
+      "verify": {
+        "kind": "cli",
+        "cmd": "python3 -c \"import sqlite3;c=sqlite3.connect('file:/data3/biomamba/analysis/DS_App/data/dsapp.sqlite3?mode=ro',uri=True,timeout=10);print(c.execute('select count(*) from v18_message_deletions').fetchone()[0])\"",
+        "expect": "re:^[1-9][0-9]*$"
+      },
+      "depends_on": [
+        "chat.messages"
+      ],
+      "nodes": {
+        "940": "degraded",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "`POST /api/chat/messages` 带 `{action:\"delete\", sid, ids}`；删除行落 v18_message_deletions（session_id/actor_id/message_ids/created_at），每次 1–200 条；2026-11-23 10:32 只读实测该表 7 行，最近一行 2026-11-14（旧版删除留痕）",
+        "2026-11-23 10:35 复核：g271 发布包（V21.59 二进制 + asset V21.52）已构建、未部署。新补丁修「等待回答时删不掉」：真在跑（生成/语音/任务）返回 409「请先点『停止』再删除消息」，awaiting_user 不再阻断；删除成功收起「请回复这条问题」框",
+        "失败必须看得见：前端删除失败用 window.dsappNotify + 行内 notice 双提示（12px 灰字不算提示），错误正文取服务端 msg/error；旧版静默 early-return 一律改为可见提示",
+        "删除只删消息行，任务/文件/账本保留；会话有 pending/running 任务时拒绝（409）"
+      ],
+      "since": "V21.59",
+      "req_refs": []
+    },
+    {
+      "id": "admin.recharge_dashboard",
+      "name": "管理员充值看板（默认「全部」+ 切档/回前台自动重查）",
+      "layer": "admin",
+      "user_path": "管理员 → 充值看板：默认「全部」；切「近 7/30/90 天」立即重查；切走再切回、回到前台自动刷新",
+      "verify": {
+        "kind": "cli",
+        "cmd": "curl -s http://127.0.0.1:34039/YCFS_APP/static/recharge.js | sha256sum | cut -c1-8",
+        "expect": "7290e1d9"
+      },
+      "depends_on": [
+        "admin.dashboard"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "2026-11-23 10:17 部署到 g270（V21.59 纯资产层，asset_version V21.50→V21.51）：只是换 /static/recharge.js，二进制仍是 Test V21.58；2026-11-23 10:32 复核 sha256 前缀=7290e1d9（旧版 9135ab0c）",
+        "默认档位从「近 30 天」改「全部」（days=0）；金额/单数/付费用户数全部取 /api/recharge {action:dashboard} 的 paid_fen/paid_orders/payers，前端只格式化不自己算",
+        "切档、刷新、切回页面（dsapp:bit-page / dsapp:nav / shown.bs.tab）、回到前台（visibilitychange）、面板首次真正显示（IntersectionObserver）都会重新查询；console.info 打「[充值看板] 第 N 次请求」可直接数请求次数",
+        "后端与库零改动；大禹仍是旧资产（V21.47），切过去看不到这个新默认档位"
+      ],
+      "since": "V21.59",
+      "req_refs": []
+    },
+    {
+      "id": "runner.cow_hardlink",
+      "name": "COW 写时复制：覆盖写自动断开硬链接",
+      "layer": "runner",
+      "user_path": "工作区里有硬链接共享的课件 → 在平台覆盖写目标文件 → 源文件 inode/mtime/sha256 不变，目标 nlink 2→1、内容为新值",
+      "verify": {
+        "kind": "cli",
+        "cmd": "grep -aq 'COW 断开硬链接' /var/lib/ycfs-hot-ui-followup-20261117/generations/$(python3 -c \"import json;print(json.load(open('/run/ycfs-unit-health/status.json'))['hot_web']['current'])\")/dist/dsapp && echo present",
+        "expect": "present"
+      },
+      "depends_on": [
+        "runner.python"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "覆盖写路径改为 temp+fsync+rename：目标 nlink>1 时断开硬链接并打日志 `[v18] COW 断开硬链接 <path> nlink=<n>`（同路径每秒最多一条）；上传 copyFile→CopyFileNew、产物覆盖→CopyFileAtomic、教案覆盖→CopyFileAtomic",
+        "kind=cli 只验当前代的 dsapp 二进制含 COW 日志标记（2026-11-23 10:32 实测 current=g270 命中）；真实断开行为要人工触发：在工作区覆盖写一个课程硬链接目标，再执行 `journalctl -q --since '2026-11-21' -u 'ycfs-hot-web-*' | grep 'COW 断开硬链接'` 应出现一行。2026-11-23 复核线上该日志 0 行（尚无用户触发覆盖写，不是功能缺失）",
+        "8 个 worker 仍被 drop-in 钉在 V21.01 封存包运行时（未重启），worker 收尾路径尚未带 COW"
+      ],
+      "since": "V21.55",
+      "req_refs": []
+    },
+    {
+      "id": "ops.peixun_hardlink",
+      "name": "培训物料以硬链接共享（课件不复制数据块）",
+      "layer": "ops",
+      "user_path": "Biomamba 账号三个会话工作区 → 课程/：scRNA-seq_R2026 / scRNA-seq_py / spatial 三套课件可直接打开",
+      "verify": {
+        "kind": "cli",
+        "cmd": "find /data3/biomamba/analysis/DS_App/data/workspaces/chat-s-20261121111120-7616/课程 -type f -links +1 2>/dev/null | wc -l",
+        "expect": "re:^[1-9][0-9]*$"
+      },
+      "depends_on": [
+        "web.file_tree"
+      ],
+      "nodes": {
+        "940": "ok",
+        "dayu": "unknown"
+      },
+      "known_limits": [
+        "用 cp -al（硬链接）把 /data3/biomamba_peixun 三套课件铺进三个会话工作区的 课程/：devlog #28 记录共 146,805 个链接、磁盘只增约 75 MB（只多目录项，不复制数据块）；2026-11-23 10:32 只读复核：三个 课程/ 下可读文件 11,317 个（R 6,096 / py 341 / spatial 4,880）全部 nlink≥2",
+        "内核 fs.protected_hardlinks=1 ⇒ 链接他人文件必须 root；脚本 /data3/biomamba/analysis/ycfs-peixun-link/link_peixun_root.sh 带闸门（版本头必须是 Test V21.55，COW 未生效就拒绝铺链接），增量脚本 sync_peixun_links.sh 只补缺失、不覆盖，--prune 才删",
+        "平台读不到：scRNA-seq_R2026/03_linux/data（cwj 700）与 3 个 nohup.out（cwj 600）——界面打开会失败，是权限事实不是链接坏了",
+        "用户覆盖写硬链接目标时由 COW 断开，源课件不被改"
+      ],
+      "since": "V21.55",
       "req_refs": []
     }
   ]
