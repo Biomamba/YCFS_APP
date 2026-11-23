@@ -3,22 +3,24 @@
 > 给**下一个接手的人或 AI harness**。目标：读完这一页 + `features.json` + `devlog.jsonl` 最近 20 条，
 > 就能接着开发，并且能测出「功能有没有丢」。
 >
-> 本文件里的数字全部来自 **2026-11-21 11:00–11:05 CST 的只读实测**（940 与大禹）。
+> 本文件里的数字来自 **2026-11-23 09:57–10:05 CST 的只读实测/复核**（940 与大禹）；
+> 任务、模型、备份等未复核项沿用 2026-11-21 11:00–11:05 的基线实测。
 > 有疑问先跑一遍 §3 的自检，不要凭记忆改东西。
 
 ---
 
 ## 0. 一句话现状
 
-- **940 是主位**：`Test V21.53`（代次 `g264`，资产 `V21.48`），8 个 worker + 语音 + 加速 + 17 单元监控全绿，DB 同步 `lag=0s`。
-- **大禹是只读备机**：`Test V21.51`，单目录（无 hot-gateway/catalog），写请求 503；
-  **能聊天不能执行**：0 个 worker、无 Jupyter、无语音、无 34080 直传、无 SMTP、无备份 cron、无监控 timer。
+- **940 是主位**：`Test V21.58`（代次 `g269`，资产 `V21.50`，库 schema `v144`），8 个 worker + 语音 + 加速 + 17 单元监控全绿，DB 同步 `lag=0s`。
+- **大禹是只读备机**：`Test V21.51`（资产 `V21.47`），单目录（无 hot-gateway/catalog），写请求 503；
+  **能聊天不能执行**：worker disabled（0 实例）、无 Jupyter、无语音、无 34080 直传、无 SMTP、无备份 cron、无监控 timer。
 - **切换过去会丢功能**，且大多数不报错（详见 `YCFS_940_vs_大禹_功能对等审计_20261121.md` 与 `features.json` 的 `nodes` 字段）。
-- 线上还有两个**已知真缺**：文件同步自 2026-11-20 20:31 起未成功；一键切换脚本 `ycfs-switch.sh` 至今未安装。
+- **同步与入口已收口**：两个同步 timer（db/files）都在跑；`ycfs-dr-sync-files.timer` 2026-11-23 09:43:54 已恢复（正在补传 2026-11-20 20:34 以来的积压）；34038 只做 301 跳转、不再明文代理应用；34080 直传仍由 940 提供（TLS 存活、明文 410）。
+- 仍缺：一键切换脚本 `ycfs-switch.sh` 至今未安装；备机功能面缺口未补（见 §3.3）。
 
 ---
 
-## 1. 当前生产状态（2026-11-21T11:05+08:00 实测）
+## 1. 当前生产状态（2026-11-23T10:05+08:00 复核）
 
 ### 1.1 拓扑与地址
 
@@ -34,22 +36,22 @@
 
 | 名字 | 940 | 大禹 | 从哪看 |
 |---|---|---|---|
-| 二进制版本 | `Test V21.53` | `Test V21.51` | `curl -I 127.0.0.1:34039/YCFS_APP/healthz` 的 `X-Ycfs-Version` |
-| 代次 | `g264`（`g263` 仍 active＝回滚窗口） | 无（单目录） | `/run/ycfs-unit-health/status.json` 的 `hot_web.current`（catalog.json 是 root-only） |
-| 资产版本 | `V21.48` | `V21.47` | `curl '…/healthz?format=json'` 的 `asset_version` |
+| 二进制版本 | `Test V21.58` | `Test V21.51` | `curl -I 127.0.0.1:34039/YCFS_APP/healthz` 的 `X-Ycfs-Version` |
+| 代次 | `g269`（`g268` 仍 active＝回滚窗口） | 无（单目录） | `/run/ycfs-unit-health/status.json` 的 `hot_web.current`（catalog.json 是 root-only） |
+| 资产版本 | `V21.50` | `V21.47` | `curl '…/healthz?format=json'` 的 `asset_version` |
 
 > 发布时**同号不同代是常态**（g257/g258 都自报 V21.47）。判断「新代有没有接管」只能靠：
 > `catalog.current` + `/proc/<pid>/exe` 的 sha256 + `asset_version`。**页面版本号不算证据。**
 
 ### 1.3 数据与同步
 
-| 项 | 值（2026-11-21 11:01 两侧一致） |
+| 项 | 值（2026-11-23 10:00–10:03 复核；未复核项为 2026-11-21 基线） |
 |---|---|
-| 库 | `v18_schema.version=143`；`users=615`、`sessions=359`、`messages=7809` |
+| 库 | `v18_schema.version=144`（2026-11-23 迁移 v144：`sessions.title_source`）；`users=620`、`sessions=370`、`messages=7930`（2026-11-23 10:03 只读查询） |
 | 任务 | `v18_jobs` 3025 行：success 2188 / failed 829 / canceled 6 / error 2 / **pending 0** |
 | 模型 | 渠道 8（启用 6）、平台模型 505（启用 151）、来源策略 47、账单 43176（带路由 1292）、审计 991 |
 | 同步 | `ycfs-dr-sync-db.timer` active（10 分钟一轮），`lag=0s`，两侧 `.keyring` sha 相同 |
-| 文件同步 | `ycfs-dr-sync-files.timer` **inactive**；最后一次 2026-11-20 20:31:51 被 TERM（`Result=signal/15`） |
+| 文件同步 | `ycfs-dr-sync-files.timer` **active**（2026-11-23 09:43:54 重启，`LastTriggerUSec` 同时间），rsync 正在补传 2026-11-20 20:34 以来的积压；此前最后一次尝试 2026-11-20 20:31:51 被 TERM（`Result=signal/15`） |
 | 备份 | 940 crontab 2 条（每日 03:17 + 每 4 小时）+ `backup_keys.sh` + `check_backup.sh`；大禹 **0 条** |
 | 磁盘 | `/data3` 8.4T/10T = **89%** |
 
@@ -60,11 +62,16 @@
 | `/data3/biomamba/analysis/DS_App/data/dsapp.sqlite3` | 生产库（R 版与 Go 版共用）；`.keyring` / `.secret_key` 同目录，**不能只同步库** |
 | `/data3/biomamba/analysis/DS_App/data/.ycfs-read-only` | `0`=可写（主位），`1`=只读（备机）；大禹另有 `.ycfs-read-only-runtime` |
 | `/data3/biomamba/analysis/ycfs-hot-web/catalog.json` | 控制面（`root:shiny 0750`，非 root 读不到）；`current` 只能由 promote/rollback 改 |
-| `/var/lib/ycfs-hot-ui-followup-20261117/generations/gNNN/` | 每一代的完整运行时；实测存在 g255…g264 |
+| `/var/lib/ycfs-hot-ui-followup-20261117/generations/gNNN/` | 每一代的完整运行时；实测存在 g255…g269（15 代） |
 | `127.0.0.1:34039` | 网关/app（只监听回环，公网 curl 不到） |
-| `0.0.0.0:34038` | **历史对外端口，仍在监听（风险）** |
-| `0.0.0.0:34080` | 直传：HTTPS 存活（`/transfer/upload`→401），HTTP 返回 410 |
+| `0.0.0.0:34038` | 历史对外端口：**只做 301 到 https 主站**（`/YCFS_APP/*` 剥前缀保留路径参数），不再代理应用 |
+| `0.0.0.0:34080` | 直传（**仍由 940 提供**）：HTTPS 存活（`/transfer/upload`→401），HTTP 返回 410 |
 | `127.0.0.1:34294` | 语音 ASR/TTS（`/healthz` 无 key 返回 401） |
+
+### 1.5 最近变更（2026-11-22～23 批次）
+
+- **本批 devlog 区间**：`devlog.jsonl` 第 26–36 条（2026-11-21T11:15 起，含 11-21 晚间发布与 11-22～23 进展）——V21.54（g265）→ V21.58（g269）五次发布，外加培训物料硬链接、会话标题现场恢复、34038 明文入口收口、文件同步 timer 恢复、充值看板误判排查、940 镜像端口清单。
+- **关键状态变化**：主位 `Test V21.53 / g264 / asset V21.48 / schema 143` → `Test V21.58 / g269 / asset V21.50 / schema 144`；文件同步 timer 从 inactive 恢复为 active；34038 从「明文镜像整个应用」改为「只 301 跳转」。
 
 ---
 
@@ -139,6 +146,8 @@ mode    : http+cli
 | `ops.switch_script` | `absent` | `/usr/local/sbin/ycfs-switch.sh` 不存在（940 只有 `ycfs-db-sync.sh`、`ycfs-unit-health.sh`） | 计划内切换现在只能手工改 nginx；脚本本体在 `ycfs-switch-hardening-20261120/`，需官网机 root + 一次性 key 安装（台账 2026-11-20-#9） |
 | `ops.files_sync` | `inactive`（`Result=signal`，`status=15`） | 文件/工作区同步 timer 自 2026-11-20 20:31 起未成功 | 最近会话的文件在备机缺失（「会话在、文件没了」）；先查 `journalctl -u ycfs-dr-sync-files` 再重跑 `--only files` |
 | `ops.legacy_port` | 仍在监听 | `0.0.0.0:34038` 历史对外端口没关（返回 301） | 第二张暴露面；核实后关掉，或加进监控清单 |
+
+> **2026-11-23 复核**：上表 3 条 FAIL 里，`ops.files_sync` 已消除（timer active）；`ops.legacy_port` 的判据仍是「34038 不监听」，实测仍在监听（但已改为只 301 跳转、不再代理应用，风险性质变化，判据本身未改）；`ops.switch_script` 仍未安装。上表是 2026-11-21 的基线快照，未改历史。
 
 其余 66 条 OK 的关键判据（都是这次真跑出来的）：
 
@@ -245,4 +254,4 @@ Notebook 面板、语音输入/朗读、任务 OOM/超时、Jupyter 配额/回�
 - `features.json` 的 `checked_on` / `updated_at` 在每次全量自检后更新（人工改，别自动写库）。
 - `devlog.jsonl` **只追加**；`append_devlog.py --check` 必须保持「坏行 0」。
 - 本文件 §1 的数字如果与自检输出不一致，**以自检为准**，并当天修本文件（漂移的文档比没有更危险）。
-- 首版建立：2026-11-21，`docs(devlog)` 提交；101 条功能、25 条历史日志。
+- 首版建立：2026-11-21，`docs(devlog)` 提交；101 条功能、25 条历史日志。2026-11-23：追加 11 条（第 26–36 条，V21.54–V21.58 与 2026-11-22～23 运维）→ 共 36 条。
