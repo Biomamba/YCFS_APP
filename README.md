@@ -266,17 +266,6 @@ YCFS_APP 把这些环节收进同一个对话：**需求、代码、运行、报
 | 数据安全吗？ | 每个对话有独立工作区，共享和访问都按对话权限判断。但涉及敏感数据时，仍请先确认单位的合规要求。 |
 | 可以私有化使用或商用吗？ | 本仓库只放产品介绍，不包含源代码。私有化、定制技能、教学合作等，请联系作者。 |
 
-## 开发者接续
-
-本仓库的 `docs/devlog/` 是给**下一个接手的人或 AI harness** 用的：读三个文件就能接着开发，并且能测出「功能有没有丢」。
-
-- [接续指南 CONTINUITY.md](docs/devlog/CONTINUITY.md) —— 当前主备状态、怎么自检、改东西的规矩
-- [全量功能清单 features.json](docs/devlog/features.json) —— 101 条功能，每条带可执行的验证命令与主/备状态
-- [开发日志 devlog.jsonl](docs/devlog/devlog.jsonl) —— 追加式历史（V21.44 → V21.53 的发布、切换、栅栏、同步、事故与决策）
-
-自检：`python3 docs/devlog/scripts/check_features.py --include-cli`  
-追加日志：`python3 docs/devlog/scripts/append_devlog.py --help`
-
 ## 反馈与许可
 
 - 使用问题、功能建议、缺陷反馈：<https://github.com/Biomamba/YCFS_APP/issues>
